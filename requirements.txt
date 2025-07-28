@@ -1,0 +1,28 @@
+# ───── Core Framework ─────
+fastapi==0.116.1
+uvicorn[standard]==0.29.0             # FastAPI 서버 실행
+
+# ───── Async HTTP 클라이언트 ─────
+httpx==0.27.0                         # 외부 API 호출 (예: 생성형 API 연동)
+
+# ───── AI 에이전트 프레임워크 ─────
+langgraph==0.0.33                     # 멀티 에이전트 흐름 관리
+langchain==0.2.2                      # LangGraph 하위 지원 기능
+crewai==0.22.8                        # Agent 역할 수행 기능 (선택)
+
+# ───── LLM & 프롬프트 연동 ─────
+google-genai    
+openai
+anthropic             
+tiktoken==0.7.0                       # 프롬프트 토큰 수 계산
+
+# ───── 데이터 분석 및 시각화 ─────
+pandas==2.2.2
+numpy==1.26.4
+matplotlib==3.8.4
+seaborn==0.13.2                       # 선택: 고급 시각화
+plotly==5.21.0                        # 선택: 대화형 시각화
+
+# ───── 유틸리티 및 환경 설정 ─────
+python-dotenv==1.0.1                  # .env 파일 관리
+psycopg2-binary                       # 고객사 DB 연결
