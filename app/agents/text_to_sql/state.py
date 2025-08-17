@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional 
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field 
 
 class SQLState(BaseModel): 
@@ -6,13 +6,13 @@ class SQLState(BaseModel):
     question: str
     schema_info: str 
     conn_str: str
-    graph_type: str 
+    graph_type: str = ""
 
     # 루프 로직 
     tried: int = 0
     error: Optional[str] = None
 
     # 만드는 값
-    query: str = "" 
-    data_json: Optional[str] = None
+    query: Optional[Any] = None
+    data_json: Optional[Any] = None
     graph_json: Optional[str] = None

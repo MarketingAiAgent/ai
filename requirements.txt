@@ -36,7 +36,7 @@ psycopg2-binary
 # ───── 데이터베이스 ─────
 sqlalchemy==2.0.30            
 psycopg2-binary==2.9.9        
-redis==6.4.0
+pymongo
 
 # ───── 유틸리티 및 환경 설정 ─────
 pydantic-settings==2.3.1     

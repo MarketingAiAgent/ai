@@ -35,6 +35,7 @@ class OrchestratorState(TypedDict):
     user_message: str
     instructions: Optional[OrchestratorInstruction] = None
     tool_results: Optional[Dict[str, Any]] = None
+    output: str = ""
 
 # --- initial_state 생성 함수 --- 
 def return_initial_state(history, active_task, conn_str, schema_info,message):
