@@ -3,9 +3,12 @@ from fastapi.responses import StreamingResponse, HTMLResponse
 import asyncio
 
 from app.core.config import settings 
+from app.core.logging_config import setup_logging
 from app.api.endpoints import chat 
 
 from typing import AsyncGenerator
+
+setup_logging() 
 
 app = FastAPI(
     title=settings.PROJECT_NAME, 
@@ -75,7 +78,7 @@ async def read_root():
     </div>
 
     <script>
-        const sessionId = crypto.randomUUID();
+        const thread_id = crypto.randomUUID();
         const form = document.getElementById('chat-form');
         const input = document.getElementById('message-input');
         const messages = document.getElementById('messages');
@@ -109,7 +112,7 @@ async def read_root():
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         "user_message": userMessage,
-                        "session_id": sessionId,
+                        "thread_id": thread_id,
                         "org_id": "test-org",
                         "db_connection_string": "placeholder"
                     })

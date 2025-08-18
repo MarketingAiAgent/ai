@@ -9,15 +9,10 @@ class Settings(BaseSettings):
     API_VERSION_STR: str
     LOG_LEVEL: str
     
-    POSTGRES_USER: str 
-    POSTGRES_PASSWORD: str 
-    POSTGRES_SERVER: str 
-    POSTGRES_PORT: int 
-    POSTGRES_DB: str 
+    COSMOS_DB_CONNECTION_STRING:str
 
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    FORMATTER_SUPERBASE_URL:str
+    FORMATTER_SUPABASE_ANON_KEY:str
     
     OPENAI_API_KEY: str
     GOOGLE_API_KEY: str 
