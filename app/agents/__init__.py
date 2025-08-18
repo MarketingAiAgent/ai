@@ -57,7 +57,7 @@ async def stream_agent(history, active_task, conn_str, schema_info, message):
     acc_state = {}
 
     try:
-        for payload in orchestrator_app.stream(state, stream_mode='values'):
+        async for payload in orchestrator_app.astream(state, stream_mode='values'):
             update, _meta = _normalize_stream_payload(payload)
             if isinstance(update, dict):
                 acc_state.update(update)
