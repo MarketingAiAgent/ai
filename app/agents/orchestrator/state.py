@@ -23,6 +23,9 @@ class OrchestratorInstruction(BaseModel):
     
 # --- LangGraph의 상태 (State) ---
 class OrchestratorState(TypedDict):
+    # --- idntifier --- 
+    thread_id: str 
+    
     # --- 이전 Context --- 
     history: List[Dict[str, str]]
     active_task: Optional[ActiveTask]
@@ -38,9 +41,10 @@ class OrchestratorState(TypedDict):
     output: str = ""
 
 # --- initial_state 생성 함수 --- 
-def return_initial_state(history, active_task, conn_str, schema_info,message):
+def return_initial_state(*, thread_id, history, active_task, conn_str, schema_info,message):
     
     return OrchestratorState(
+        thread_id=thread_id,
         history=history,
         active_task=active_task,
         schema_info=schema_info,
