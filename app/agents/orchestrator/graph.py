@@ -1,14 +1,10 @@
-# app/agents/orchestrator/graph.py
 from __future__ import annotations
 
 import json
 import textwrap
 import logging
-import re
 from typing import List, Optional, Dict, Any, Literal, TypedDict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,236 +13,11 @@ from langgraph.graph import StateGraph, END
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
-from app.agents.text_to_sql.__init__ import call_sql_generator
 from .state import *
+from .tools import *
+from .helpers import _summarize_history, _today_kr, _normalize_table
 
 logger = logging.getLogger(__name__)
-
-
-# =========================
-# Tools
-# =========================
-
-def run_t2s_agent(state: OrchestratorState):
-    instruction = state['instructions'].t2s_instruction
-    logger.info("T2S 에이전트 실행: %s", instruction)
-
-    result = call_sql_generator(message=instruction, conn_str=state['conn_str'], schema_info=state['schema_info'])
-    sql = result['query']
-    table = result["data_json"]
-
-    logger.info(f"쿼리: \n{sql}")
-    logger.info(f"결과 테이블: \n{table}")
-
-    if isinstance(table, str):
-        table = json.loads(table)
-    return table
-
-def run_knowledge_agent(instruction: str) -> str:
-    logger.info("지식 에이전트 실행: %s", instruction)
-    return "최근 숏폼 콘텐츠를 활용한 바이럴 마케팅이 인기입니다."
-
-# =========================
-# Helpers
-# =========================
-
-def _summarize_history(history: List[Dict[str, str]], limit_chars: int = 800) -> str:
-    """최근 히스토리를 간단 요약으로 제공 (LLM 컨텍스트용)"""
-    text = " ".join(h.get("content", "") for h in history[-6:])
-    return text[:limit_chars]
-
-def _today_kr() -> str:
-    """Asia/Seoul 기준 오늘 날짜 yyyy-mm-dd"""
-    try:
-        return datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
-    except Exception:
-        return datetime.now().strftime("%Y-%m-%d")
-
-def _normalize_table(table: Any) -> Dict[str, Any]:
-    """
-    t2s 표 결과를 표준 형태로 정규화.
-
-    지원하는 입력:
-      - {"rows":[...], "columns":[...]}                           # 이미 표준
-      - {"columns":[...], "data":[[...], ...]}                    # pandas orient='split'
-      - {"schema": {...}, "data":[{...}, ...]}                    # pandas orient='table'
-      - [{"col": val, ...}, ...]                                  # pandas orient='records'
-      - {col: {row_idx: val, ...}, ...}                           # pandas orient='columns'
-      - {row_idx: {col: val, ...}, ...}                           # pandas orient='index'
-      - [[...], [...]]                                            # 열 이름 미상 (col_0.. 생성)
-    """
-    # 문자열이면 JSON 먼저 파싱
-    if isinstance(table, str):
-        try:
-            table = json.loads(table)
-        except Exception:
-            return {"rows": [], "columns": [], "row_count": 0}
-
-    # 0) 이미 표준
-    if isinstance(table, dict) and "rows" in table:
-        rows = table.get("rows") or []
-        cols = table.get("columns") or (list(rows[0].keys()) if rows and isinstance(rows[0], dict) else [])
-        return {"rows": rows, "columns": cols, "row_count": len(rows)}
-
-    # 1) split
-    if isinstance(table, dict) and "columns" in table and "data" in table and isinstance(table["data"], list):
-        cols = table["columns"]
-        data = table["data"]
-        rows = [{cols[i]: (row[i] if i < len(row) else None) for i in range(len(cols))} for row in data]
-        return {"rows": rows, "columns": cols, "row_count": len(rows)}
-
-    # 2) table
-    if isinstance(table, dict) and "schema" in table and "data" in table and isinstance(table["data"], list):
-        data = table["data"]
-        if data and isinstance(data[0], dict):
-            cols = list(data[0].keys())
-            return {"rows": data, "columns": cols, "row_count": len(data)}
-
-    # 3) records
-    if isinstance(table, list) and (not table or isinstance(table[0], dict)):
-        cols = list(table[0].keys()) if table else []
-        return {"rows": table, "columns": cols, "row_count": len(table)}
-
-    # 4) columns (dict-of-dicts or dict-of-lists)
-    if isinstance(table, dict) and table and all(isinstance(v, (dict, list)) for v in table.values()):
-        cols = list(table.keys())
-        # dict-of-dicts: {col: {row_idx: val}}
-        if all(isinstance(v, dict) for v in table.values()):
-            row_keys = set()
-            for d in table.values():
-                row_keys |= set(d.keys())
-
-            def _ord(k):
-                try: return int(k)
-                except Exception:
-                    try: return float(k)
-                    except Exception:
-                        return str(k)
-
-            ordered = sorted(list(row_keys), key=_ord)
-            rows = []
-            for rk in ordered:
-                row = {c: table[c].get(rk) for c in cols}
-                rows.append(row)
-            return {"rows": rows, "columns": cols, "row_count": len(rows)}
-
-        # dict-of-lists: {col: [v0, v1, ...]}
-        if all(isinstance(v, list) for v in table.values()):
-            maxlen = max((len(v) for v in table.values()), default=0)
-            rows = [{c: (table[c][i] if i < len(table[c]) else None) for c in cols} for i in range(maxlen)]
-            return {"rows": rows, "columns": cols, "row_count": len(rows)}
-
-    # 5) index orientation: {row_idx: {col: val}}
-    if isinstance(table, dict) and table and all(isinstance(v, dict) for v in table.values()):
-        try:
-            items = list(table.items())
-
-            def _ord2(k):
-                try: return int(k)
-                except Exception:
-                    try: return float(k)
-                    except Exception:
-                        return str(k)
-
-            items.sort(key=lambda kv: _ord2(kv[0]))
-            rows = [kv[1] for kv in items]
-            cols = list(rows[0].keys()) if rows else []
-            return {"rows": rows, "columns": cols, "row_count": len(rows)}
-        except Exception:
-            pass
-
-    # 6) list-of-lists
-    if isinstance(table, list) and table and isinstance(table[0], (list, tuple)):
-        max_cols = max((len(r) for r in table), default=0)
-        cols = [f"col_{i}" for i in range(max_cols)]
-        rows = [{cols[i]: v for i, v in enumerate(r)} for r in table]
-        return {"rows": rows, "columns": cols, "row_count": len(rows)}
-
-    return {"rows": [], "columns": [], "row_count": 0}
-
-def _pick_col(columns: List[str], candidates: List[str]) -> Optional[str]:
-    lc = [c.lower() for c in columns]
-    for cand in candidates:
-        if cand.lower() in lc:
-            return columns[lc.index(cand.lower())]
-    # 부분 일치도 허용(예: 'product_name', 'product')
-    for i, c in enumerate(lc):
-        for cand in candidates:
-            if cand.lower() in c:
-                return columns[i]
-    return None
-
-def _format_number(n: Any) -> str:
-    try:
-        x = float(n)
-        # 정수처럼 보이면 정수로, 아니면 소수 2자리
-        if abs(x - int(x)) < 1e-9:
-            return f"{int(x):,}"
-        return f"{x:,.2f}"
-    except Exception:
-        return str(n)
-
-_NUMBER_STRIP_RE = re.compile(r"[,\s₩$€£]|(?<=\d)\%")
-
-def _to_float_safe(v: Any) -> Optional[float]:
-    """문자·통화·퍼센트 등을 안전하게 float 변환"""
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip()
-    if not s:
-        return None
-    # 괄호 음수 (예: (1,234))
-    neg = False
-    if s.startswith("(") and s.endswith(")"):
-        neg = True
-        s = s[1:-1]
-    s = _NUMBER_STRIP_RE.sub("", s)
-    try:
-        x = float(s)
-        return -x if neg else x
-    except Exception:
-        return None
-
-def _markdown_table(rows: List[Dict[str, Any]], columns: List[str], limit: int = 10) -> str:
-    if not rows:
-        return "_표시할 데이터가 없습니다._"
-    cols = columns or list(rows[0].keys())
-    header = "| " + " | ".join(cols) + " |"
-    sep = "| " + " | ".join(["---"] * len(cols)) + " |"
-    lines = [header, sep]
-    for r in rows[:limit]:
-        line = "| " + " | ".join(str(r.get(c, "")) for c in cols) + " |"
-        lines.append(line)
-    if len(rows) > limit:
-        lines.append(f"\n_표시는 상위 {limit}행 미리보기입니다 (총 {len(rows)}행)._")
-    return "\n".join(lines)
-
-def _format_period_by_datecol(rows: List[Dict[str, Any]], date_col: Optional[str]) -> str:
-    """date 열이 있으면 min~max 기간을 표시"""
-    if not rows or not date_col:
-        return ""
-    vals = []
-    for r in rows:
-        v = r.get(date_col)
-        if v is None:
-            continue
-        s = str(v)
-        # 단순 파싱 (YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD 등)
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%Y-%m", "%Y/%m"):
-            try:
-                d = datetime.strptime(s[:len(fmt)], fmt)
-                vals.append(d)
-                break
-            except Exception:
-                continue
-    if not vals:
-        return ""
-    start = min(vals).strftime("%Y-%m-%d")
-    end = max(vals).strftime("%Y-%m-%d")
-    return f" (기간: {start} ~ {end})"
-
 
 # =========================
 # Action-State Adapter (4·5·6)
@@ -466,14 +237,12 @@ def action_state_node(state: OrchestratorState):
         user_message=state.get("user_message", "")
     )
     logger.info("Action decision: %s", decision)
-    # tool_results에 누적 병합될 수 있도록 반환
     return {"tool_results": {"action": decision}}
 
 def tool_executor_node(state: OrchestratorState):
     logger.info("--- 3. 🔨 툴 실행 노드 (Tool Executor) 실행 ---")
 
     instructions = state.get("instructions")
-    # 기존 결과와 병합(액션 노드 결과 유지)
     existing_results = dict(state.get("tool_results") or {})
     if not instructions or (not instructions.t2s_instruction and not instructions.knowledge_instruction):
         logger.info("호출할 툴이 없습니다.")
@@ -496,7 +265,6 @@ def tool_executor_node(state: OrchestratorState):
                 logger.error("%s 툴 실행 중 에러 발생: %s", tool_name, e)
                 tool_results[tool_name] = {"error": str(e)}
 
-    # 액션 결과와 병합
     merged = {**existing_results, **tool_results} if existing_results else tool_results
     return {"tool_results": merged}
 
@@ -506,21 +274,18 @@ def response_generator_node(state: OrchestratorState):
     instructions = state.get("instructions")
     tool_results = state.get("tool_results") or {}
 
-    # LLM에 전달할 입력을 '그대로' 구성 (LLM이 서식/분기 모두 결정)
     instructions_text = (
         instructions.response_generator_instruction
         if instructions and instructions.response_generator_instruction
         else "사용자 요청에 맞춰 정중하고 간결하게 답변해 주세요."
     )
 
-    # 표는 정규화만 해서 전달 (행 조립/정렬/숫자 파싱 등 일체 금지)
     t2s_payload = tool_results.get("t2s")
     t2s_table = _normalize_table(t2s_payload) if t2s_payload else None
 
     action_decision = tool_results.get("action")  # action_state_node 결과 그대로
     knowledge_snippet = tool_results.get("knowledge") if isinstance(tool_results.get("knowledge"), str) else None
 
-    # LLM 프롬프트 (최종 응답을 LLM이 직접 작성)
     prompt_tmpl = textwrap.dedent("""
     당신은 마케팅 오케스트레이터의 최종 응답 생성기입니다.
     아래 입력만을 근거로 **한국어 존댓말**로 한 번에 완성된 답변을 작성해 주세요.
@@ -573,7 +338,6 @@ def response_generator_node(state: OrchestratorState):
     {knowledge_snippet}
     """)
 
-    # JSON 직렬화(LLM이 그대로 읽도록): 가공·해석 없이 전달
     action_json = json.dumps(action_decision, ensure_ascii=False) if action_decision is not None else "null"
     table_json = json.dumps(t2s_table, ensure_ascii=False) if t2s_table is not None else "null"
 
@@ -591,7 +355,6 @@ def response_generator_node(state: OrchestratorState):
         "knowledge_snippet": knowledge_snippet or ""
     })
 
-    # 모델 객체/문자열 호환
     final_response = getattr(final_text, "content", None) or str(final_text)
 
     logger.info(f"최종 결과(L):\n{final_response}")

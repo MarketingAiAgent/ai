@@ -37,6 +37,7 @@ psycopg2-binary
 sqlalchemy==2.0.30            
 psycopg2-binary==2.9.9        
 pymongo
+supabase
 
 # ───── 유틸리티 및 환경 설정 ─────
 pydantic-settings==2.3.1     

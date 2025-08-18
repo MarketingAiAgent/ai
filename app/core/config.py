@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     
     COSMOS_DB_CONNECTION_STRING:str
 
+    FORMATTER_SUPERBASE_URL:str
+    FORMATTER_SUPABASE_ANON_KEY:str
+    
     OPENAI_API_KEY: str
     GOOGLE_API_KEY: str 
     ANTHROPIC_API_KEY: str 
