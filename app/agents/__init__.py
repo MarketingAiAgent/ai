@@ -1,83 +1,71 @@
 import json
-import time
-
-from langchain_google_genai import ChatGoogleGenerativeAI
+import logging
+from collections import deque 
 
 from .orchestrator.state import return_initial_state
 from .orchestrator.graph import orchestrator_app
 
-# def stream_agent(history, active_task, conn_str, schema_info, message): 
+async def stream_agent(thread_id, history, active_task, conn_str, schema_info, message):
+    state = return_initial_state(thread_id, history, active_task, conn_str, schema_info, message)
 
-#     state = return_initial_state(history, active_task, conn_str, schema_info,message)
+    yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
 
-#     yield f"data: {json.dumps({'type' : 'report_start'})}\n\n"
+    graph = None
+    is_in_table = False 
+    
+    TOKEN_START = "[TABLE_START]"
+    TOKEN_END = "[TABLE_END]"
 
-#     for chunk, metadata in orchestrator_app.stream(state, stream_mode='messages'):
-#         if chunk.content: 
-#             for char in chunk.content:
-#                 char_chunk_data = {"type": "text_chunk", 'content': char}
-#                 yield f"data: {json.dumps(char_chunk_data)}\n\n"
-
-#                 time.sleep(0.02)
-
-#     yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-import json, time
-
-def _json_safe(obj):
-    def _fallback(o):
-        md = getattr(o, "model_dump", None)
-        if callable(md):
-            return md()
-        mj = getattr(o, "model_dump_json", None)
-        if callable(mj):
-            try:
-                return json.loads(mj())
-            except Exception:
-                return str(o)
-        return str(o)
-    try:
-        return json.dumps(obj, ensure_ascii=False, default=_fallback)
-    except Exception:
-        return json.dumps(str(obj), ensure_ascii=False)
-
-def _normalize_stream_payload(payload):
-    if isinstance(payload, tuple):
-        update = payload[0] if len(payload) >= 1 else {}
-        meta = payload[1] if len(payload) >= 2 and isinstance(payload[1], dict) else {}
-    else:
-        update, meta = payload, {}
-    return update, meta
-
-async def stream_agent(history, active_task, conn_str, schema_info, message):
-    state = return_initial_state(history, active_task, conn_str, schema_info, message)
-
-    yield f"data: {json.dumps({'type': 'report_start'}, ensure_ascii=False)}\n\n"
-
-    acc_state = {}
+    buffer_outside_table = deque(maxlen=len(TOKEN_START))
+    buffer_inside_table = deque(maxlen=len(TOKEN_END))
 
     try:
-        async for payload in orchestrator_app.astream(state, stream_mode='values'):
-            update, _meta = _normalize_stream_payload(payload)
-            if isinstance(update, dict):
-                acc_state.update(update)
+        async for event in orchestrator_app.astream_events(state, version="v2"):
+            kind = event["event"]
+            current_node = event.get("metadata", {}).get("langgraph_node")
+            
+            if kind=='on_chain_start':
+                if current_node not in ["__start__", "__end__"]:
+                    state_payload = {
+                        "type": "state",
+                        "content": f"{current_node} 노드 수행 중..."
+                    }
+                    yield f"data: {json.dumps(state_payload, ensure_ascii=False)}\n\n"
+            
+            if kind == "on_chat_model_stream" and current_node== "response_generator":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and chunk.content:
+                    for c in chunk.content:
 
-        final_text = ""
-        if "output" in acc_state and acc_state["output"] is not None:
-            val = acc_state["output"]
-            final_text = val if isinstance(val, str) else _json_safe(val)
-        else:
-            hist = acc_state.get("history") or []
-            if hist and isinstance(hist[-1], dict) and hist[-1].get("role") == "assistant":
-                final_text = str(hist[-1].get("content") or "")
+                        if is_in_table:
+                            buffer = buffer_inside_table
+                            token = TOKEN_END
+                            alert = "table_end"
 
-        if final_text:
-            for ch in final_text:
-                yield f"data: {json.dumps({'type': 'text_chunk', 'content': ch}, ensure_ascii=False)}\n\n"
-                time.sleep(0.02)
+                        else: 
+                            buffer = buffer_outside_table
+                            token = TOKEN_START
+                            alert = "table_start"
+                        
+                        if len(buffer) < buffer.maxlen:
+                            buffer.append(c)
+                            continue 
 
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': buffer.popleft()}, ensure_ascii=False)}\n\n"
+                        buffer.append(c)
+
+                        window_text = "".join(buffer)
+                        if window_text == token:
+                            is_in_table = not is_in_table
+                            yield f"data: {json.dumps({'type': alert}, ensure_ascii=False)}\n\n"
+                            buffer.clear()
 
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        error_payload = {"type": "error", "message": str(e)}
+        yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+
+    finally:
+        if graph:
+            yield f"data: {json.dumps({'type':graph, 'content':graph})}"
+            
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"

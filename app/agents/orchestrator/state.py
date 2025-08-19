@@ -41,7 +41,7 @@ class OrchestratorState(TypedDict):
     output: str = ""
 
 # --- initial_state 생성 함수 --- 
-def return_initial_state(*, thread_id, history, active_task, conn_str, schema_info,message):
+def return_initial_state(thread_id, history, active_task, conn_str, schema_info,message):
     
     return OrchestratorState(
         thread_id=thread_id,

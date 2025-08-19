@@ -33,6 +33,7 @@ async def chat_stream(request: ChatRequest = Body(...)):
     history = get_chat_history(thread_id=request.thread_id)
 
     response_stream = stream_agent(
+        thread_id=request.thread_id,
         history=history, 
         active_task=None, 
         conn_str=settings.CONN_STR, 

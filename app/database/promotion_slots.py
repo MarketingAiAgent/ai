@@ -24,6 +24,8 @@ def get_or_create_state(thread_id: str) -> dict:
             default_state = PromotionSlots()
             new_state = default_state.model_dump()
             new_state['thread_id'] = thread_id
+            new_state['created_at'] = datetime.now()
+            new_state['updated_at'] = datetime.now()
             
             collection.insert_one(new_state)
             return new_state
@@ -40,15 +42,14 @@ def update_state(thread_id: str, new_values: dict) -> UpdateResult:
     try:
         collection = db.conversation_states
         
+        set_doc = dict(new_values)
         result = collection.update_one(
             {"thread_id": thread_id},
-            {"$set": new_values}
+            {"$set": set_doc,"$currentDate": {"updated_at": True}}
         )
         
-        if result.modified_count > 0:
-            logger.info(f"🔄 상태가 업데이트되었습니다. (채팅방 ID: {thread_id}, 변경: {new_values})")
-        
-        return result
+        logger.info(f"상태가 업데이트 되었습니다. (채팅방 ID: {thread_id})")
+        return UpdateResult(None, None)
 
     except Exception as e:
         logger.error(f"❌ 상태 업데이트 중 오류 발생: {e}")
