@@ -11,6 +11,15 @@ class PromotionSlots(BaseModel):
     brand: Optional[str] = Field(None, description="사용자가 선택한 프로모션 타겟 브랜드")
     duration: Optional[str] = Field(None, description="프로모션 기간")
 
+class PromotionSlotUpdate(BaseModel):
+    target_type: Optional[Literal["brand_target", "category_target"]] = None
+    brand: Optional[str] = None
+    target: Optional[str] = None
+    objective: Optional[str] = None
+    duration: Optional[str] = None
+    selected_product: Optional[str] = None
+    product_options: Optional[List[str]] = None
+    
 class ActiveTask(BaseModel):
     task_id: str
     status: Literal["in_progress", "done"] # 쓸지는 모르겠지만 일단 두자
