@@ -7,48 +7,49 @@ from app.agents.orchestrator.state import PromotionSlots
 
 logger = logging.getLogger(__name__)
 
-def get_or_create_state(thread_id: str) -> dict:
+def get_or_create_state(chat_id: str) -> dict:
     if db is None:
         raise ConnectionError("DB에 연결되지 않았습니다.")
 
     try:
         collection = db.conversation_states
-        state = collection.find_one({"thread_id": thread_id})
+        state = collection.find_one({"chat_id": chat_id})
 
         if state:
-            logger.info(f"✅ 기존 상태를 불러왔습니다. (대화방 ID: {thread_id})")
+            logger.info(f"✅ 기존 상태를 불러왔습니다. (대화방 ID: {chat_id})")
             return state
         else:
-            logger.info(f"✨ 새로운 상태를 생성합니다. (대화방 ID: {thread_id})")
+            logger.info(f"✨ 새로운 상태를 생성합니다. (대화방 ID: {chat_id})")
 
             default_state = PromotionSlots()
             new_state = default_state.model_dump()
-            new_state['thread_id'] = thread_id
+            new_state['chat_id'] = chat_id
+            new_state['created_at'] = datetime.now()
+            new_state['updated_at'] = datetime.now()
             
             collection.insert_one(new_state)
             return new_state
             
     except Exception as e:
         logger.error(f"❌ 상태 조회/생성 중 오류 발생: {e}")
-        return { "thread_id": thread_id }
+        return { "chat_id": chat_id }
 
 
-def update_state(thread_id: str, new_values: dict) -> UpdateResult:
+def update_state(chat_id: str, new_values: dict) -> UpdateResult:
     if db is None:
         raise ConnectionError("DB에 연결되지 않았습니다.")
 
     try:
         collection = db.conversation_states
         
+        set_doc = dict(new_values)
         result = collection.update_one(
-            {"thread_id": thread_id},
-            {"$set": new_values}
+            {"chat_id": chat_id},
+            {"$set": set_doc,"$currentDate": {"updated_at": True}}
         )
         
-        if result.modified_count > 0:
-            logger.info(f"🔄 상태가 업데이트되었습니다. (채팅방 ID: {thread_id}, 변경: {new_values})")
-        
-        return result
+        logger.info(f"상태가 업데이트 되었습니다. (채팅방 ID: {chat_id})")
+        return UpdateResult(None, None)
 
     except Exception as e:
         logger.error(f"❌ 상태 업데이트 중 오류 발생: {e}")

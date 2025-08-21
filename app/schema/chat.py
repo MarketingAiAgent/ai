@@ -1,9 +1,17 @@
-from pydantic import BaseModel, Field
+from re import S
+from ._base import CamelCaseModel
 from typing import Optional
 
-class ChatRequest(BaseModel):
+class ChatRequest(CamelCaseModel):
     user_message: str
-    thread_id: str 
-    org_id: str
-    db_connection_string: str
+    chat_id: str 
+    company: str
     user_id: Optional[str] = None
+
+class NewChatRequest(CamelCaseModel):
+    user_message: str
+    company: str
+    user_id: Optional[str] = None
+
+class CreatePlanRequest(CamelCaseModel):
+    chat_id: str

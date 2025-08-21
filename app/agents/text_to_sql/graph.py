@@ -10,7 +10,7 @@ from .crew import crewAI_sql_generator
 from .state import *
 
 logger = logging.getLogger(__name__)
-MAX_ROWS = 5000
+MAX_ROWS = 20
 
 # --- Node --- 
 def call_t2s_crew(state: SQLState): 
@@ -62,12 +62,14 @@ def call_sql(state: SQLState):
             state.data_json["columns"],
         )
 
+        logger.info(f"{state.query}")
+
     except Exception as e:
         # 실패해도 data_json은 동일 스키마로 채워서 downstream이 깨지지 않게
         state.data_json = {"rows": [], "columns": [], "row_count": 0, "error": str(e)}
         state.error = e
         state.tried = getattr(state, "tried", 0) + 1
-        logger.exception("SQL 실행 실패")
+        logger.error(f"SQL 실행 실패:{e}")
 
     finally:
         # 커넥션 정리

@@ -11,16 +11,17 @@ class Settings(BaseSettings):
     
     COSMOS_DB_CONNECTION_STRING:str
 
-    FORMATTER_SUPERBASE_URL:str
-    FORMATTER_SUPABASE_ANON_KEY:str
+    SUPERBASE_URL:str
+    SUPABASE_ANON_KEY:str
     
     OPENAI_API_KEY: str
     GOOGLE_API_KEY: str 
     ANTHROPIC_API_KEY: str 
-    SUPABASE_API_KEY: str 
+    TAVILY_API_KEY: str
 
     # --- 테스트 용 --- 
     CONN_STR: str
     SCHEMA_INFO: str
     
 settings = Settings()
+os.environ['TAVILY_API_KEY'] = settings.TAVILY_API_KEY

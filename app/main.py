@@ -28,15 +28,6 @@ async def healthz():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    # HTML, CSS, JavaScript 코드를 파이썬 문자열로 정의
-    # app/main.py 의 html_content 변수
-
-    # app/main.py 의 html_content 변수
-
-    # app/main.py에 들어갈 html_content 변수
-
-    # app/main.py에 들어갈 html_content 변수
-
     html_content = """
 <!DOCTYPE html>
 <html>
@@ -53,10 +44,31 @@ async def read_root():
         .user-message { align-items: flex-end; }
         .user-message p { margin: 0; padding: 10px 15px; border-radius: 18px; max-width: 80%; line-height: 1.5; background-color: #007bff; color: white; }
         .ai-message { align-items: flex-start; }
-        .ai-message-container { background-color: #e9e9eb; color: #333; padding: 1px; border-radius: 18px; max-width: 100%; }
+        .ai-message-container { background-color: #e9e9eb; color: #333; padding: 10px 1px 15px 1px; border-radius: 18px; max-width: 100%; }
         .ai-message-container h3 { margin-top: 15px; padding: 0 15px;}
         .ai-message-container ul { padding-left: 35px; }
         .ai-message-container p { padding: 0 15px; }
+        .status-message {
+            align-self: center;
+            font-style: italic;
+            color: #888;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 5px 10px;
+        }
+        /* --- 추가된 스타일 --- */
+        .error-message {
+            align-self: center;
+            font-style: italic;
+            color: #d9534f; /* Red color for error text */
+            background-color: #f2dede; /* Light red background */
+            border: 1px solid #ebccd1;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 8px 12px;
+        }
+        /* --- --- */
         #chat-form { display: flex; padding: 20px; border-top: 1px solid #ddd; }
         #message-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; margin-right: 10px; font-size: 16px; }
         #chat-form button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 16px; }
@@ -67,7 +79,7 @@ async def read_root():
         <div id="messages">
             <div class="message ai-message">
                 <div class="ai-message-container">
-                    <p style="padding-top: 10px;">안녕하세요! 마케팅 분석 AI 에이전트입니다.</p>
+                    <p>안녕하세요! 마케팅 분석 AI 에이전트입니다.</p>
                 </div>
             </div>
         </div>
@@ -78,7 +90,7 @@ async def read_root():
     </div>
 
     <script>
-        const thread_id = crypto.randomUUID();
+        const chat_id = crypto.randomUUID();
         const form = document.getElementById('chat-form');
         const input = document.getElementById('message-input');
         const messages = document.getElementById('messages');
@@ -101,10 +113,13 @@ async def read_root():
             addUserMessage(userMessage);
             input.value = '';
 
-            // AI 응답을 담을 변수들을 미리 선언
             let aiReportContainer = null;
             let aiTextElement = null;
             let accumulatedText = '';
+            let statusIndicator = null;
+
+            const existingStatus = document.getElementById('status-indicator');
+            if (existingStatus) existingStatus.remove();
 
             try {
                 const response = await fetch('/chat/stream', {
@@ -112,12 +127,12 @@ async def read_root():
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         "user_message": userMessage,
-                        "thread_id": thread_id,
+                        "chat_id": chat_id,
                         "org_id": "test-org",
                         "db_connection_string": "placeholder"
                     })
                 });
-                
+
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
@@ -125,19 +140,18 @@ async def read_root():
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    
+
                     buffer += decoder.decode(value, {stream: true});
-                    
-                    while (buffer.includes('\\n\\n')) {
-                        const messageEndIndex = buffer.indexOf('\\n\\n');
-                        const rawMessage = buffer.substring(0, messageEndIndex);
-                        buffer = buffer.substring(messageEndIndex + 2);
 
-                        if (rawMessage.startsWith('data: ')) {
+                    let parts = buffer.split('\\n\\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        if (part.startsWith('data: ')) {
                             try {
-                                const data = JSON.parse(rawMessage.substring(6));
+                                const data = JSON.parse(part.substring(6));
 
-                                if (data.type === 'report_start') {
+                                if (data.type === 'start') {
                                     const messageDiv = document.createElement('div');
                                     messageDiv.classList.add('message', 'ai-message');
                                     aiReportContainer = document.createElement('div');
@@ -145,7 +159,21 @@ async def read_root():
                                     messageDiv.appendChild(aiReportContainer);
                                     messages.appendChild(messageDiv);
 
-                                } else if (data.type === 'text_chunk') {
+                                } else if (data.type === 'state') {
+                                    if (!statusIndicator) {
+                                        statusIndicator = document.createElement('div');
+                                        statusIndicator.id = 'status-indicator';
+                                        statusIndicator.classList.add('status-message');
+                                        messages.appendChild(statusIndicator);
+                                    }
+                                    statusIndicator.textContent = data.content;
+
+                                } else if (data.type === 'chunk') {
+                                    if (statusIndicator) {
+                                        statusIndicator.remove();
+                                        statusIndicator = null;
+                                    }
+
                                     if (!aiTextElement) {
                                         aiTextElement = document.createElement('div');
                                         aiReportContainer.appendChild(aiTextElement);
@@ -155,23 +183,48 @@ async def read_root():
 
                                 } else if (data.type === 'graph') {
                                     const graphDiv = document.createElement('div');
-                                    graphDiv.id = 'graph-' + crypto.randomUUID();
+                                    graphDiv.style.width = '100%';
+                                    graphDiv.style.minHeight = '400px';
                                     aiReportContainer.appendChild(graphDiv);
-                                    Plotly.newPlot(graphDiv.id, data.content.data, data.content.layout, {responsive: true});
-                                
+
+                                    const plotData = JSON.parse(data.content);
+                                    Plotly.newPlot(graphDiv, plotData.data, plotData.layout, {responsive: true});
+
+                                // --- 추가된 코드 블록 ---
+                                } else if (data.type === 'error') {
+                                    // 기존 상태 메시지가 있다면 제거
+                                    if (statusIndicator) {
+                                        statusIndicator.remove();
+                                        statusIndicator = null;
+                                    }
+                                    // 에러 메시지 요소를 생성하고 추가
+                                    const errorDiv = document.createElement('div');
+                                    errorDiv.classList.add('error-message');
+                                    errorDiv.textContent = data.content;
+                                    messages.appendChild(errorDiv);
+                                    console.error("AI Agent Error:", data.content);
+                                    // 에러 발생 후 스트림 처리를 중단할 수 있도록 루프 탈출
+                                    return;
+                                // --- ---
+
                                 } else if (data.type === 'done') {
+                                    if (statusIndicator) {
+                                        statusIndicator.remove();
+                                        statusIndicator = null;
+                                    }
                                     return;
                                 }
                                 messages.scrollTop = messages.scrollHeight;
                             } catch (e) {
-                                console.error("JSON Parse Error:", e, "Data:", rawMessage);
+                                console.error("JSON Parse Error:", e, "Data:", part);
                             }
                         }
                     }
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                addUserMessage('오류가 발생했습니다: ' + error.message, 'ai');
+                const statusIndicator = document.getElementById('status-indicator');
+                if (statusIndicator) statusIndicator.remove();
             }
         });
     </script>

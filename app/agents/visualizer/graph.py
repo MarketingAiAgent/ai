@@ -8,13 +8,15 @@ from uuid import uuid4
 from langgraph.graph import StateGraph, END
 from google import genai
 from google.genai import types as genai_types
+from typing import Optional
 
 from .state import VisualizeState
+from app.core.config import settings
 
 # ===== Helper =====
 class GeminiClient:
     def __init__(self, model: str):
-        self.client = genai.Client()
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model = model
 
     def generate(self, prompt: str, system_instruction: Optional[str] = None,
