@@ -7,7 +7,7 @@ class PromotionSlots(BaseModel):
     target_type: Optional[Literal["brand_target", "category_target"]] = Field(None, description="프로모션의 타겟 종류")
     target: Optional[str] = Field(None, description="프로모션 타겟 고객")
     product_options: List[str] = Field(default_factory=list, description="사용자에게 제안할 상품 후보 목록")
-    selected_product: Optional[str] = Field(None, description="사용자가 최종 선택한 프로모션 상품")
+    selected_product: List[str] = Field([], description="사용자가 최종 선택한 프로모션 상품")
     brand: Optional[str] = Field(None, description="사용자가 선택한 프로모션 타겟 브랜드")
     duration: Optional[str] = Field(None, description="프로모션 기간")
 
@@ -36,7 +36,7 @@ class OrchestratorInstruction(BaseModel):
 # --- LangGraph의 상태 (State) ---
 class OrchestratorState(TypedDict):
     # --- idntifier --- 
-    thread_id: str 
+    chat_id: str 
     
     # --- 이전 Context --- 
     history: List[Dict[str, str]]
@@ -53,10 +53,10 @@ class OrchestratorState(TypedDict):
     output: str = ""
 
 # --- initial_state 생성 함수 --- 
-def return_initial_state(thread_id, history, active_task, conn_str, schema_info,message):
+def return_initial_state(chat_id, history, active_task, conn_str, schema_info,message):
     
     return OrchestratorState(
-        thread_id=thread_id,
+        chat_id=chat_id,
         history=history,
         active_task=active_task,
         schema_info=schema_info,

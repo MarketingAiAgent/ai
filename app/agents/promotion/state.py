@@ -24,13 +24,12 @@ def get_action_state(
 
     if not _is_filled(slots.target_type):
         return {
-            "intent_type": "promotion",
-            "status": "ask_for_slots",
-            "missing_slots": ["target_type"],
-            "ask_prompts": [ASK_PROMPT_MAP["target_type"]],
+            "intent_type": "promotion", "status": "ask_for_slots",
+            "missing_slots": ["target_type"], "ask_prompts": [ASK_PROMPT_MAP["target_type"]],
             "payload": {},
         }
 
+    # 필수 슬롯 목록 확인
     ordered_missing: List[str] = []
     if slots.target_type == "brand_target":
         if not _is_filled(slots.brand):
@@ -38,14 +37,6 @@ def get_action_state(
     elif slots.target_type == "category_target":
         if not _is_filled(slots.target):
             ordered_missing.append("target")
-    else:
-        return {
-            "intent_type": "promotion",
-            "status": "ask_for_slots",
-            "missing_slots": ["target_type"],
-            "ask_prompts": [ASK_PROMPT_MAP["target_type"]],
-            "payload": {},
-        }
 
     if not _is_filled(slots.objective):
         ordered_missing.append("objective")
@@ -53,28 +44,29 @@ def get_action_state(
         ordered_missing.append("duration")
 
     if ordered_missing:
-        asks = [ASK_PROMPT_MAP[k] for k in ordered_missing[:2]]
+        # 아직 채워야 할 기본 정보가 남은 경우
         return {
-            "intent_type": "promotion",
-            "status": "ask_for_slots",
-            "missing_slots": ordered_missing,
-            "ask_prompts": asks,
+            "intent_type": "promotion", "status": "ask_for_slots",
+            "missing_slots": ordered_missing, "ask_prompts": [ASK_PROMPT_MAP[k] for k in ordered_missing[:2]],
             "payload": {},
         }
 
-    payload = {
-        "objective": slots.objective,
-        "target_type": slots.target_type,
-        "target": slots.target,
-        "brand": slots.brand,
-        "selected_product": slots.selected_product,
-        "duration": slots.duration,
-        "product_options": slots.product_options,
-    }
+    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
+    # 기본 정보는 다 채워졌지만, '어떤 제품'으로 할지가 빠진 경우
+    if not _is_filled(slots.selected_product):
+        # options_generator를 호출해야 한다는 신호로 'ask_for_product' 상태를 반환
+        return {
+            "intent_type": "promotion",
+            "status": "ask_for_product", # 새로운 상태
+            "missing_slots": ["selected_product"],
+            "ask_prompts": ["어떤 제품으로 프로모션을 진행할까요? 아래 추천 목록에서 선택하시거나 직접 입력해주세요."],
+            "payload": slots.model_dump(),
+        }
+    # ------------------------------------
+
+    # 제품까지 모든 정보가 완벽하게 채워졌을 때만 'start_promotion' 상태가 됨
     return {
-        "intent_type": "promotion",
-        "status": "start_promotion",
-        "missing_slots": [],
-        "ask_prompts": [],
-        "payload": payload,
+        "intent_type": "promotion", "status": "start_promotion",
+        "missing_slots": [], "ask_prompts": [],
+        "payload": slots.model_dump(),
     }

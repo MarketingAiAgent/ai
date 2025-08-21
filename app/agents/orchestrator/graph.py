@@ -41,7 +41,7 @@ def _merge_slots(state: OrchestratorState, updates: Dict[str, Any]) -> Promotion
 def slot_extractor_node(state: OrchestratorState):
     logger.info("--- 2. 슬롯 추출/저장 노드 실행 ---")
     user_message = state.get("user_message", "")
-    thread_id = state["thread_id"]
+    chat_id = state["chat_id"]
 
     parser = PydanticOutputParser(pydantic_object=PromotionSlotUpdate)
     prompt_tmpl = textwrap.dedent("""
@@ -73,7 +73,7 @@ def slot_extractor_node(state: OrchestratorState):
         return {}
 
     try:
-        update_state(thread_id, updates)
+        update_state(chat_id, updates)
         logger.info("Mongo 상태 업데이트: %s", updates)
     except Exception as e:
         logger.error("Mongo 업데이트 실패: %s", e)
@@ -182,26 +182,41 @@ def action_state_node(state: OrchestratorState):
 def _action_router(state: OrchestratorState) -> str:
     """
     action_state 결과로 다음 노드 결정:
-    - brand/target을 묻는 상황이면 options_generator
-    - 그 외 ask_for_slots/objective/duration은 response_generator
-    - start_promotion/skip도 response_generator로 (LLM이 요약/안내)
+    - brand/target을 묻거나, 특정 product를 물어야 하는 상황이면 options_generator로 분기
+    - 그 외 (objective/duration 질문, 최종 확인 등)는 response_generator로 분기
     """
     tr = state.get("tool_results") or {}
     action = tr.get("action") or {}
     status = action.get("status")
     missing = action.get("missing_slots", [])
 
+    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
+    # 'ask_for_product' 상태일 때 options_generator를 호출하도록 명시
+    if status == "ask_for_product":
+        return "options_generator"
+    # ------------------------------------
+    
+    # 기존 로직: brand나 target을 물어야 할 때도 options_generator 호출
     if status == "ask_for_slots" and any(m in ("brand", "target") for m in missing):
         return "options_generator"
+        
     return "response_generator"
-
-def _build_candidate_t2s_instruction(target_type: str, lookback_days: int = 60) -> str:
+    
+def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) -> str:
     end = datetime.now(ZoneInfo("Asia/Seoul")).date()
-    start = end - timedelta(days=lookback_days)
-    # 표준 alias 강제
+    start = end - timedelta(days=60)
+    
+    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
+    # 브랜드 필터링 조건을 담을 변수
+    brand_filter_instruction = ""
+    # slots에 brand 정보가 있으면 필터링 지시문을 생성합니다.
+    if slots and slots.brand:
+        brand_filter_instruction = f" 또한, 결과는 반드시 '{slots.brand}' 브랜드의 제품만 포함해야 합니다."
+    # ------------------------------------
+ 
     if target_type == "brand_target":
         return textwrap.dedent(f"""
-        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.
+        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.{brand_filter_instruction}
         반드시 다음 컬럼 alias를 포함해야 합니다:
         - brand_name
         - revenue (최근 기간 매출)
@@ -239,17 +254,17 @@ def _build_candidate_t2s_instruction(target_type: str, lookback_days: int = 60) 
 
 def options_generator_node(state: OrchestratorState):
     logger.info("--- 🧠 옵션 제안 노드 실행 ---")
-    thread_id = state["thread_id"]
+    chat_id = state["chat_id"]
     slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
     target_type = slots.target_type or "brand_target"
 
-    t2s_instr = _build_candidate_t2s_instruction(target_type)
+    t2s_instr = _build_candidate_t2s_instruction(target_type, slots)
     table = run_t2s_agent_with_instruction(state, t2s_instr)
     rows = table["rows"]
 
     if not rows:
         logger.warning("t2s 후보 데이터가 비어 있습니다.")
-        update_state(thread_id, {"product_options": []})
+        update_state(chat_id, {"product_options": []})
         tr = state.get("tool_results") or {}
         tr["option_candidates"] = {"candidates": [], "method": "deterministic_v1", "time_window": "", "constraints": {}}
         return {"tool_results": tr}
@@ -294,7 +309,7 @@ def options_generator_node(state: OrchestratorState):
 
 
     try:
-        update_state(thread_id, {"product_options": labels})
+        update_state(chat_id, {"product_options": labels})
     except Exception as e:
         logger.error("옵션 라벨 저장 실패: %s", e)
 
@@ -440,18 +455,25 @@ def response_generator_node(state: OrchestratorState):
     )
 
     t2s_table = None
+    web_search = None
+    scraped_pages = None
+    marketing_trend_results = None
+    youtuber_trend_results = None
     for key, value in tr.items():
         if key.startswith("t2s") and isinstance(value, dict) and "rows" in value:
             t2s_table = value
+        elif key.startswith("web_search"): 
+            web_search = value
+        elif key.startswith("scraped_pages"):
+            scraped_pages = value
+        elif key.startswith("marketing_trend_results"):
+            marketing_trend_results = value
+        elif key.startswith("beauty_youtuber_trend_search"):
+            youtuber_trend_results = value
 
     action_decision = tr.get("action")
     knowledge_snippet = tr.get("knowledge") if isinstance(tr.get("knowledge"), str) else None
     option_candidates = tr.get("option_candidates") if isinstance(tr.get("option_candidates"), dict) else None
-
-    web_search = tr.get("web_search")
-    scraped_pages = tr.get("scraped_pages")
-    marketing_trend_results = tr.get("marketing_trend_results")
-    youtuber_trend_results = tr.get("youtuber_trend_results")
 
     prompt_tmpl = textwrap.dedent("""
     당신은 마케팅 오케스트레이터의 최종 응답 생성기입니다.
@@ -472,7 +494,7 @@ def response_generator_node(state: OrchestratorState):
     [작성 지침]
     1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (brand_target | category_target)")
     2) 위 1번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
-    3) `option_candidates`가 있으면 번호로 제시하고 각 1~2줄 근거를 붙입니다. 마지막에 '기타(직접 입력)'도 추가합니다.    
+    3) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 모든 수치는 어떤 수치인지 구체적인 언급을 해주세요. 마지막에 '기타(직접 입력)'도 추가합니다.    
     4) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
     5) t2s_table이 있으면 상위 10행 미리보기 표를 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
     6) 전체적으로 구조화된 형식을 유지하세요.
@@ -571,7 +593,7 @@ workflow.add_conditional_edges(
     "tool_executor",
     _should_visualize_router,
     {
-        "visualize": "visualizer",
+        "visualize": "response_generator",
         "skip_visualize": "response_generator"
     }
 )

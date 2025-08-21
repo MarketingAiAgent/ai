@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def save_chat_message(thread_id: str, user_message: str, agent_message: str):
+def save_chat_message(chat_id: str, user_message: str, agent_message: str):
     if db is None:
         logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
         return None
@@ -13,7 +13,7 @@ def save_chat_message(thread_id: str, user_message: str, agent_message: str):
         collection = db.chat_logs
         
         message_log = {
-            "thread_id": thread_id,
+            "chat_id": chat_id,
             "user_message": user_message,
             "agent_message": agent_message,
             "timestamp": datetime.now()
@@ -27,7 +27,7 @@ def save_chat_message(thread_id: str, user_message: str, agent_message: str):
         logger.error(f"❌ 메시지 저장 중 오류가 발생했습니다: {e}")
         return None
 
-def get_chat_history(thread_id: str, limit: int = 10):
+def get_chat_history(chat_id: str, limit: int = 10):
     
     if db is None:
         logger.error("DB에 연결되지 않아 기록을 조회할 수 없습니다.")
@@ -36,7 +36,7 @@ def get_chat_history(thread_id: str, limit: int = 10):
     try:
         collection = db.chat_logs
         
-        history = list(collection.find({"thread_id": thread_id})
+        history = list(collection.find({"chat_id": chat_id})
                                  .sort("timestamp", -1)
                                  .limit(limit))
         
@@ -46,17 +46,17 @@ def get_chat_history(thread_id: str, limit: int = 10):
         logger.error(f"❌ 채팅 기록 조회 중 오류가 발생했습니다: {e}")
         return []
 
-def delete_chat_history(thread_id: str): 
+def delete_chat_history(chat_id: str): 
     if db is None:
         logger.error("DB에 연결되지 않아 기록을 삭제할 수 없습니다.")
         return 0
     
     try:
         collection = db.chat_logs
-        result = collection.delete_many({"thread_id": thread_id})
+        result = collection.delete_many({"chat_id": chat_id})
         deleted_count = result.deleted_count
 
-        logger.info(f"💬 총 {deleted_count}개의 메시지가 삭제되었습니다. (채팅방 ID: {thread_id})")
+        logger.info(f"💬 총 {deleted_count}개의 메시지가 삭제되었습니다. (채팅방 ID: {chat_id})")
         return deleted_count
     
     except Exception as e:

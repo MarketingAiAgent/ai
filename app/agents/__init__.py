@@ -5,8 +5,8 @@ from collections import deque
 from .orchestrator.state import return_initial_state
 from .orchestrator.graph import orchestrator_app
 
-async def stream_agent(thread_id, history, active_task, conn_str, schema_info, message):
-    state = return_initial_state(thread_id, history, active_task, conn_str, schema_info, message)
+async def stream_agent(chat_id, history, active_task, conn_str, schema_info, message):
+    state = return_initial_state(chat_id, history, active_task, conn_str, schema_info, message)
 
     yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
 

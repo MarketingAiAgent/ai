@@ -114,7 +114,7 @@ def marketing_trend_search(question: str) -> Dict[str, Any]:
         logger.error("Supabase marketing search 실패: %s", e)
         return {"results": [], "error": str(e)}
 
-def beauty_youtuber_trend_search(question: str) -> Dict[str, Any]:
+def beauty_youtuber_trend_search(question: str, summarize=True) -> Dict[str, Any]:
     """
     Supabase 함수 'beauty_vector_search' 호출.
     스키마는 marketing_trend_search와 동일.
@@ -132,7 +132,9 @@ def beauty_youtuber_trend_search(question: str) -> Dict[str, Any]:
                 "text": it.get("text", ""),
                 "subtitle": it.get("subtitle", ""),
             })
-        
+        if not summarize: 
+            return {'results': out}
+
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
 
         SUMMARIZER_PROMPT = """
@@ -294,7 +296,7 @@ def get_knowledge_snapshot(
     # 3) Supabase 마케팅/뷰티 인사이트
     if use_supabase:
         mk_res = marketing_trend_search(query)
-        yt_res = beauty_youtuber_trend_search(query)
+        yt_res = beauty_youtuber_trend_search(query, summarize=False)
         for item in (mk_res.get("results") or []):
             for k in ("title", "chunk_text", "text", "subtitle"):
                 if item.get(k): all_texts.append(item[k])

@@ -28,15 +28,6 @@ async def healthz():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    # HTML, CSS, JavaScript 코드를 파이썬 문자열로 정의
-    # app/main.py 의 html_content 변수
-
-    # app/main.py 의 html_content 변수
-
-    # app/main.py에 들어갈 html_content 변수
-
-    # app/main.py에 들어갈 html_content 변수
-
     html_content = """
 <!DOCTYPE html>
 <html>
@@ -57,14 +48,25 @@ async def read_root():
         .ai-message-container h3 { margin-top: 15px; padding: 0 15px;}
         .ai-message-container ul { padding-left: 35px; }
         .ai-message-container p { padding: 0 15px; }
-        /* --- 추가된 스타일 --- */
-        .status-message { 
-            align-self: center; 
-            font-style: italic; 
-            color: #888; 
-            font-size: 0.9em; 
+        .status-message {
+            align-self: center;
+            font-style: italic;
+            color: #888;
+            font-size: 0.9em;
             margin-top: 10px;
             padding: 5px 10px;
+        }
+        /* --- 추가된 스타일 --- */
+        .error-message {
+            align-self: center;
+            font-style: italic;
+            color: #d9534f; /* Red color for error text */
+            background-color: #f2dede; /* Light red background */
+            border: 1px solid #ebccd1;
+            border-radius: 4px;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 8px 12px;
         }
         /* --- --- */
         #chat-form { display: flex; padding: 20px; border-top: 1px solid #ddd; }
@@ -88,7 +90,7 @@ async def read_root():
     </div>
 
     <script>
-        const thread_id = crypto.randomUUID();
+        const chat_id = crypto.randomUUID();
         const form = document.getElementById('chat-form');
         const input = document.getElementById('message-input');
         const messages = document.getElementById('messages');
@@ -114,10 +116,8 @@ async def read_root():
             let aiReportContainer = null;
             let aiTextElement = null;
             let accumulatedText = '';
-            // --- 추가: 상태 메시지를 관리할 변수 ---
             let statusIndicator = null;
 
-            // 이전 상태 메시지가 있다면 제거
             const existingStatus = document.getElementById('status-indicator');
             if (existingStatus) existingStatus.remove();
 
@@ -127,12 +127,12 @@ async def read_root():
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         "user_message": userMessage,
-                        "thread_id": thread_id,
+                        "chat_id": chat_id,
                         "org_id": "test-org",
                         "db_connection_string": "placeholder"
                     })
                 });
-                
+
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
@@ -140,11 +140,11 @@ async def read_root():
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    
+
                     buffer += decoder.decode(value, {stream: true});
-                    
+
                     let parts = buffer.split('\\n\\n');
-                    buffer = parts.pop(); // 마지막 불완전한 부분은 다음을 위해 남겨둠
+                    buffer = parts.pop();
 
                     for (const part of parts) {
                         if (part.startsWith('data: ')) {
@@ -160,7 +160,6 @@ async def read_root():
                                     messages.appendChild(messageDiv);
 
                                 } else if (data.type === 'state') {
-                                    // --- 추가: 상태 메시지 처리 ---
                                     if (!statusIndicator) {
                                         statusIndicator = document.createElement('div');
                                         statusIndicator.id = 'status-indicator';
@@ -168,15 +167,12 @@ async def read_root():
                                         messages.appendChild(statusIndicator);
                                     }
                                     statusIndicator.textContent = data.content;
-                                    // --------------------------
 
                                 } else if (data.type === 'chunk') {
-                                    // --- 추가: 청크 시작 시 상태 메시지 제거 ---
                                     if (statusIndicator) {
                                         statusIndicator.remove();
                                         statusIndicator = null;
                                     }
-                                    // ------------------------------------
 
                                     if (!aiTextElement) {
                                         aiTextElement = document.createElement('div');
@@ -186,26 +182,36 @@ async def read_root():
                                     aiTextElement.innerHTML = marked.parse(accumulatedText);
 
                                 } else if (data.type === 'graph') {
-                                    // --- 수정: Plotly 그래프 처리 ---
                                     const graphDiv = document.createElement('div');
-                                    // Plotly가 반응형으로 동작하도록 스타일 추가
                                     graphDiv.style.width = '100%';
                                     graphDiv.style.minHeight = '400px';
-
                                     aiReportContainer.appendChild(graphDiv);
-                                    
-                                    // 백엔드에서 fig.to_json()으로 보낸 문자열을 파싱
+
                                     const plotData = JSON.parse(data.content);
                                     Plotly.newPlot(graphDiv, plotData.data, plotData.layout, {responsive: true});
-                                    // ------------------------------
-                                
-                                } else if (data.type === 'done') {
-                                    // --- 추가: 종료 시 상태 메시지 제거 ---
+
+                                // --- 추가된 코드 블록 ---
+                                } else if (data.type === 'error') {
+                                    // 기존 상태 메시지가 있다면 제거
                                     if (statusIndicator) {
                                         statusIndicator.remove();
                                         statusIndicator = null;
                                     }
-                                    // --------------------------------
+                                    // 에러 메시지 요소를 생성하고 추가
+                                    const errorDiv = document.createElement('div');
+                                    errorDiv.classList.add('error-message');
+                                    errorDiv.textContent = data.content;
+                                    messages.appendChild(errorDiv);
+                                    console.error("AI Agent Error:", data.content);
+                                    // 에러 발생 후 스트림 처리를 중단할 수 있도록 루프 탈출
+                                    return;
+                                // --- ---
+
+                                } else if (data.type === 'done') {
+                                    if (statusIndicator) {
+                                        statusIndicator.remove();
+                                        statusIndicator = null;
+                                    }
                                     return;
                                 }
                                 messages.scrollTop = messages.scrollHeight;
@@ -217,7 +223,6 @@ async def read_root():
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                // 오류 발생 시에도 상태 메시지 제거
                 const statusIndicator = document.getElementById('status-indicator');
                 if (statusIndicator) statusIndicator.remove();
             }
