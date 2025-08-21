@@ -1,8 +1,9 @@
-from typing import List, Dict, Any, Optional 
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import json 
 import re 
+import math
 
 def summarize_history(history: List[Dict[str, str]], limit_chars: int = 800) -> str:
     """최근 히스토리를 간단 요약으로 제공 (LLM 컨텍스트용)"""

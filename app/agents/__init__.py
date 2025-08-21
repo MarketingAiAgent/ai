@@ -19,11 +19,53 @@ async def stream_agent(thread_id, history, active_task, conn_str, schema_info, m
     buffer_outside_table = deque(maxlen=len(TOKEN_START))
     buffer_inside_table = deque(maxlen=len(TOKEN_END))
 
+    buffer = None 
+    
+    TOOL_NAME_MAP = {
+        "t2s": "데이터베이스 조회",
+        "tavily_search": "웹 검색",
+        "scrape_webpages": "웹페이지 분석",
+        "marketing_trend_search": "마케팅 트렌드 분석",
+        "beauty_youtuber_trend_search": "뷰티 트렌드 분석",
+    }
+
     try:
         async for event in orchestrator_app.astream_events(state, version="v2"):
             kind = event["event"]
             current_node = event.get("metadata", {}).get("langgraph_node")
             
+            if kind == "on_chain_end" and current_node== "visualizer":
+                final_state = event.get("data", {}).get("output")
+                if final_state:
+                    viz_data = final_state.get("tool_results", {}).get("visualization")
+                    if viz_data and viz_data.get("json_graph"):
+                        graph = {
+                            "type": "graph",
+                            "content": viz_data["json_graph"]
+                        }
+
+            if current_node == "tool_executor":
+                # 노드로 들어가는 입력(state)에서 tool_calls를 추출합니다.
+                input_state = event.get("data", {}).get("input", {})
+                instructions = input_state.get("instructions")
+                tool_calls = instructions.tool_calls if instructions else []
+                
+                if not tool_calls:
+                    continue # 실행할 툴이 없으면 넘어감
+
+                # 각 툴 호출에 대해 구체적인 메시지를 전송합니다.
+                for call in tool_calls:
+                    tool_name = call.get("tool", "알 수 없는 툴")
+                    display_name = TOOL_NAME_MAP.get(tool_name, tool_name)
+                    tool_payload = {
+                        "type": "state",
+                        "content": f"{display_name} 실행 중..."
+                    }
+                    yield f"data: {json.dumps(tool_payload, ensure_ascii=False)}\n\n"
+                
+                # 구체적인 툴 메시지를 보냈으므로, 제네릭한 노드 메시지는 건너뜁니다.
+                continue
+                
             if kind=='on_chain_start':
                 if current_node not in ["__start__", "__end__"]:
                     state_payload = {
@@ -65,7 +107,10 @@ async def stream_agent(thread_id, history, active_task, conn_str, schema_info, m
         yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
 
     finally:
+        if buffer:
+            for c in buffer: 
+                yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=False)}\n\n"
         if graph:
-            yield f"data: {json.dumps({'type':graph, 'content':graph})}"
+            yield f"data: {json.dumps(graph, ensure_ascii=False)}\n\n"
             
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"

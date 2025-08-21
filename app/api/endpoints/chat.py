@@ -5,9 +5,11 @@ import json
 import asyncio
 
 from app.agents.__init__ import stream_agent
+from app.agents.orchestrator.state import PromotionSlots, ActiveTask
 from app.schema.chat import ChatRequest
 from app.core.config import settings
 from app.database.chat_history import get_chat_history, save_chat_message, delete_chat_history
+from app.database.promotion_slots import get_or_create_state
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -31,11 +33,18 @@ async def stream_and_save(request, response_stream):
 async def chat_stream(request: ChatRequest = Body(...)):
 
     history = get_chat_history(thread_id=request.thread_id)
+    slots = get_or_create_state(thread_id=request.thread_id)
+
+    current_active_task = ActiveTask(
+        task_id=request.thread_id,
+        status="in_progress",
+        slots=PromotionSlots(**slots)
+    )
 
     response_stream = stream_agent(
         thread_id=request.thread_id,
         history=history, 
-        active_task=None, 
+        active_task=current_active_task, 
         conn_str=settings.CONN_STR, 
         schema_info=settings.SCHEMA_INFO, 
         message=request.user_message

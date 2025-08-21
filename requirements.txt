@@ -36,6 +36,7 @@ plotly==5.21.0
 # ───── 유틸리티 및 환경 설정 ─────
 python-dotenv==1.0.1
 pydantic-settings==2.10.1
+beautifulsoup4==4.13.4
 
 # ───── 데이터베이스 ─────
 sqlalchemy==2.0.30

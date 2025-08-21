@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict, List, Dict, Optional, Any
+from typing import Literal, TypedDict, List, Dict, Optional, Any, Union
 from pydantic import BaseModel, Field
 
 # --- Pydantic 모델 (데이터 검증 및 구조화용) ---
@@ -26,9 +26,12 @@ class ActiveTask(BaseModel):
     slots: Optional[PromotionSlots] = Field(None, description="task_type이 promotion일 경우 진행 상황")
 
 class OrchestratorInstruction(BaseModel):
-    t2s_instruction: Optional[str] = Field(None, description="만약 t2s 에이전트 호출이 없다면 None, 호출이 있다면 t2s 에이전트가 해야할 일을 지시")
-    knowledge_instruction: Optional[str] = Field(None, description="만약 지식 에이전트 호출이 없다면 None, 호출이 있다면 지식 에이전트가 해야할 일을 지시")
+    tool_calls: Optional[List[Dict[str, Any]]] = Field(
+        None, 
+        description="실행할 도구 목록. 예: [{'tool': 't2s', 'args': {'instruction': '...'}}]"
+    )
     response_generator_instruction: str = Field(description="응답 생성 에이전트가 어떤 응답을 해야하는지 지시")
+
     
 # --- LangGraph의 상태 (State) ---
 class OrchestratorState(TypedDict):
