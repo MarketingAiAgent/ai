@@ -18,8 +18,8 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 @router.post("/stream/new")
 async def new_chat_stream(request: NewChatRequest = Body(...)):
 
-    chat_id = uuid.uuid4().hex 
     chat_title = await generate_chat_title(request.user_message)
+    chat_id = crete_chat(user_id=request.user_id, title=chat_title)
 
     slots = get_or_create_state(chat_id=chat_id)
     
@@ -41,9 +41,8 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
 
     async def initial_event_stream(agent_stream):
         initial_payload = {
-            "type": "title",
-            "chat_id": chat_id,
-            "content": chat_title
+            "type": "chat_id",
+            "content": chat_id,
         }
         yield f"data: {json.dumps(initial_payload, ensure_ascii=False)}\n\n"
         
@@ -57,7 +56,7 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest = Body(...)):
-    """기존 대화를 이어갑니다."""
+
     history = get_chat_history(chat_id=request.chat_id)
     slots = get_or_create_state(chat_id=request.chat_id)
 
@@ -76,7 +75,6 @@ async def chat_stream(request: ChatRequest = Body(...)):
         message=request.user_message
     )
     
-    # 개선된 저장 로직을 기존 엔드포인트에도 적용
     final_stream = stream_and_save_wrapper(request.chat_id, request.user_message, response_stream)
 
     return StreamingResponse(final_stream, media_type="text/event-stream")
@@ -85,11 +83,10 @@ async def chat_stream(request: ChatRequest = Body(...)):
 def delete_chat(chat_id: str = Path(...)):
     deleted_count = delete_chat_history(chat_id=chat_id)
 
-    if deleted_count > 0:
+    if deleted_count:
         return {
             "message": "Chat history deleted successfully.",
             "chat_id": chat_id,
-            "deleted_messages": deleted_count
         }
 
     else:

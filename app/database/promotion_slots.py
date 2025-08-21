@@ -12,7 +12,7 @@ def get_or_create_state(chat_id: str) -> dict:
         raise ConnectionError("DB에 연결되지 않았습니다.")
 
     try:
-        collection = db.conversation_states
+        collection = db.states
         state = collection.find_one({"chat_id": chat_id})
 
         if state:
@@ -40,7 +40,7 @@ def update_state(chat_id: str, new_values: dict) -> UpdateResult:
         raise ConnectionError("DB에 연결되지 않았습니다.")
 
     try:
-        collection = db.conversation_states
+        collection = db.states
         
         set_doc = dict(new_values)
         result = collection.update_one(
