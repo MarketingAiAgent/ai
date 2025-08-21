@@ -37,6 +37,7 @@ plotly==5.21.0
 python-dotenv==1.0.1
 pydantic-settings==2.10.1
 beautifulsoup4==4.13.4
+humps==0.2.2
 
 # ───── 데이터베이스 ─────
 sqlalchemy==2.0.30
