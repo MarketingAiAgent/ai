@@ -64,6 +64,7 @@ jobs:
             k8s/configmap.yml
             k8s/deployment.yml
             k8s/service.yml
+            k8s/network-policy.yml 
           images: |
             ${{ env.AZURE_ACR_NAME }}.azurecr.io/${{ env.IMAGE_REPOSITORY_NAME }}:${{ github.sha }}
           namespace: 'default'
