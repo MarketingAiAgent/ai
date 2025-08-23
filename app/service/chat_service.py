@@ -16,15 +16,14 @@ async def generate_chat_title(message: str) -> str:
         title_response = await chain.ainvoke({"message": message})
         title = title_response.content.strip().replace('"', '')
         return title if title else "새로운 대화"
+        
     except Exception as e:
         print(f"Error generating chat title: {e}")
         return "새로운 대화"
 
 
 async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stream):
-    """
-    스트림을 클라이언트에 전달하면서, 실제 AI 응답 텍스트만 추출하여 DB에 저장합니다.
-    """
+    
     full_response_content = []
     async for chunk_str in response_stream:
         yield chunk_str 

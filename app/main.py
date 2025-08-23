@@ -1,7 +1,10 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.responses import StreamingResponse, HTMLResponse
-import asyncio
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
+import asyncio
+import logging 
 from app.core.config import settings 
 from app.core.logging_config import setup_logging
 from app.api.endpoints import chat 
@@ -9,6 +12,8 @@ from app.api.endpoints import chat
 from typing import AsyncGenerator
 
 setup_logging() 
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME, 
@@ -25,6 +30,17 @@ async def word_stream(text: str) -> AsyncGenerator[str, None]:
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+# @app.exception_handler(RequestValidationError)
+# async def validation_exception_handler(request: Request, exc: RequestValidationError):
+#     # 유효성 검사 에러의 상세 내용을 로그로 출력
+#     logger.error(f"Validation error for request to {request.url}: {exc.errors()}")
+
+#     # 기본 FastAPI 에러 응답 형식을 그대로 사용하려면 아래와 같이 JSONResponse를 반환
+#     return JSONResponse(
+#         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#         content={"detail": exc.errors()},
+#     )
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():

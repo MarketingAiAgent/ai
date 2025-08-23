@@ -39,7 +39,7 @@ def _merge_slots(state: OrchestratorState, updates: Dict[str, Any]) -> Promotion
     return merged
 
 def slot_extractor_node(state: OrchestratorState):
-    logger.info("--- 2. 슬롯 추출/저장 노드 실행 ---")
+    logger.info("--- 🔍 슬롯 추출/저장 노드 실행 ---")
     user_message = state.get("user_message", "")
     chat_id = state["chat_id"]
 

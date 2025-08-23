@@ -37,6 +37,7 @@ LOGGING_CONFIG = {
         # (선택) 시끄러운 외부 로거 소거
         "httpx":   {"level": "WARNING", "handlers": ["default"], "propagate": False},
         "langchain": {"level": "WARNING", "handlers": ["default"], "propagate": False},
+        "pymongo": {"level": "WARNING", "handlers": ["default"], "propagate": False},
 
         # ✅ 애플리케이션 네임스페이스(예: app.*) 직접 핸들러 연결
         "app": {"level": settings.LOG_LEVEL, "handlers": ["default"], "propagate": False},

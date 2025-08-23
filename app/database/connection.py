@@ -27,4 +27,4 @@ def get_database(db_name):
         return db_client[db_name]
     return None
 
-db = get_database("chat_db")
+db = get_database("minti")
