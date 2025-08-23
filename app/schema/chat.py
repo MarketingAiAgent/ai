@@ -15,3 +15,20 @@ class NewChatRequest(CamelCaseModel):
 
 class CreatePlanRequest(CamelCaseModel):
     chat_id: str
+    company: str
+
+class CreateBrandPlanResponse(CamelCaseModel):
+    planId: str
+    title: str
+    mainBanner: str
+    couponSection: str
+    productSection: str
+    eventNotes: str
+
+class CreateCategoryPlanResponse(CamelCaseModel):
+    planId: str
+    title: str
+    mainBanner: str
+    section1: str
+    section2: str
+    section3: str

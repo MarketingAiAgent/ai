@@ -12,7 +12,8 @@ from app.core.config import settings
 from app.database.chat_history import *
 from app.database.promotion_slots import get_or_create_state
 from app.service.chat_service import generate_chat_title, stream_and_save_wrapper
-from app.mock import get_mock_response, mock_stream_with_save
+from app.mock import get_mock_response, mock_stream_with_save 
+from app.mock.plan import mock_create_plan
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -105,4 +106,18 @@ def delete_chat(chat_id: str = Path(...)):
 
 @router.post("/createPlan")
 def create_plan(request: CreatePlanRequest):
-    return mock_create_plan()
+    chat_id = request.chat_id 
+    active_state = get_or_create_state(chat_id=chat_id)
+
+    return_type = active_state['target_type']
+    if return_type != "brand" and return_type != "category":
+        return_type = 'brand'
+
+    return mock_create_plan(return_type, request.company)
+
+    # if active_tast.status == "in_progress":
+    #     raise HTTPException(
+    #         status_code=status.HTTP_404_NOT_FOUND,
+    #         detail=f"아직 프로모션이 준비되지 않았습니다."
+    #     )
+    # else:
