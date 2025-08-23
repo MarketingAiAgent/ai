@@ -24,7 +24,9 @@ def create_plan(plan_id: str, company: str, target_type: str, plan_content: dict
             "created_at": now,
             "last_updated": now,
             "target_type": target_type,
-            "plan_content": plan_content
+            "plan_content": plan_content,
+            "share": False,
+            "url": None
         }
         
         result: InsertOneResult = collection.insert_one(plan_data)
