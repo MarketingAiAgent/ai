@@ -15,6 +15,7 @@ class NewChatRequest(CamelCaseModel):
 
 class CreatePlanRequest(CamelCaseModel):
     chat_id: str
+    user_id: str
     company: str
 
 class CreateBrandPlanResponse(CamelCaseModel):

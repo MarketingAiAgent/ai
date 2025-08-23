@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 
-def create_plan(plan_id: str, company: str, target_type: str, plan_content: dict):
+def create_plan(plan_id: str, user_id: str, company: str, target_type: str, plan_content: dict):
     if db is None:
         logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
         return None
@@ -20,6 +20,8 @@ def create_plan(plan_id: str, company: str, target_type: str, plan_content: dict
 
         plan_data = {
             "plan_id": plan_id,
+            "user_id": user_id,
+            "title": plan_content['title'],
             "company": company,
             "created_at": now,
             "last_updated": now,
