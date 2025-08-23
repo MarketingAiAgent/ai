@@ -8,10 +8,10 @@ def mock_create_plan(return_type, company):
         plan_content = {
             "planId": plan_id, 
             "title":"Brand Plan",
-            "mainBanner": "",
-            "couponSection": "",
-            "productSection": "",
-            "eventNotes": ""
+            "mainBanner": "메인 배너입니다.",
+            "couponSection": "쿠폰 섹션입니다.",
+            "productSection": "상품 섹션입니다.",
+            "eventNotes": "이벤트 노트입니다."
         }
 
         response = CreateBrandPlanResponse(**plan_content)
@@ -19,10 +19,10 @@ def mock_create_plan(return_type, company):
         plan_content = {
             "planId": plan_id,
             "title": "Category Plan",
-            "mainBanner": "",
-            "section1": "",
-            "section2": "",
-            "section3": ""
+            "mainBanner": "메인 배너입니다.",
+            "section1": "섹션 1입니다.",
+            "section2": "섹션 2입니다.",
+            "section3": "섹션 3입니다."
         }
         response = CreateCategoryPlanResponse(**plan_content)
 
