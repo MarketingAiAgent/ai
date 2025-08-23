@@ -1,8 +1,13 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROFILE = os.getenv("PROFILE", "local")
 
 class Settings(BaseSettings):
     
+    if PROFILE == "local":
+        model_config = SettingsConfigDict(env_file=".env.local", env_file_encoding="utf-8")
+        
     PROJECT_NAME: str
     API_VERSION_STR: str
     LOG_LEVEL: str
@@ -21,3 +26,6 @@ class Settings(BaseSettings):
     SCHEMA_INFO: str
     
 settings = Settings()
+
+if PROFILE == "local":
+    os.environ['TAVILY_API_KEY'] = settings.TAVILY_API_KEY
