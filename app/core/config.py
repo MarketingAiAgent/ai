@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     CONN_STR: str
     SCHEMA_INFO: str
     
+    # Mock 모드 설정 (기본값: False)
+    ENABLE_MOCK_MODE: bool = True
+    
 settings = Settings()
 
 if PROFILE == "local":

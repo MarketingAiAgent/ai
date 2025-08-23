@@ -54,14 +54,14 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str):
             {
                 "message_id": uuid.uuid4().hex,
                 "chat_id": chat_id,
-                "sender": "user",
+                "speaker": "user",
                 "timestamp": now,
                 "content": user_message,
             },
             {
                 "message_id": uuid.uuid4().hex,
                 "chat_id": chat_id,
-                "sender": "ai",
+                "speaker": "ai",
                 "timestamp": now,
                 "content": agent_message,
             }

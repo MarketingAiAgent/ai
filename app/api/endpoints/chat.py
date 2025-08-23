@@ -12,17 +12,26 @@ from app.core.config import settings
 from app.database.chat_history import *
 from app.database.promotion_slots import get_or_create_state
 from app.service.chat_service import generate_chat_title, stream_and_save_wrapper
+from app.mock import get_mock_response, mock_stream_with_save
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 @router.post("/stream/new")
 async def new_chat_stream(request: NewChatRequest = Body(...)):
 
+    # Mock 응답 체크 (한 줄로 처리)
+    if mock_response := get_mock_response(request.user_message):
+        chat_title = await generate_chat_title(request.user_message)
+        chat_id = crete_chat(user_id=request.user_id, title=chat_title)
+        
+        # Mock 응답을 스트리밍하면서 채팅 히스토리에 저장
+        final_stream = mock_stream_with_save(chat_id, request.user_message, mock_response)
+        return StreamingResponse(final_stream, media_type="text/event-stream")
+
     chat_title = await generate_chat_title(request.user_message)
     chat_id = crete_chat(user_id=request.user_id, title=chat_title)
     
     history = []  
-
     response_stream = stream_agent(
         chat_id=chat_id,
         history=history, 
@@ -49,6 +58,12 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest = Body(...)):
+
+    # Mock 응답 체크 (한 줄로 처리)
+    if mock_response := get_mock_response(request.user_message):
+        # Mock 응답을 스트리밍하면서 채팅 히스토리에 저장
+        final_stream = mock_stream_with_save(request.chat_id, request.user_message, mock_response)
+        return StreamingResponse(final_stream, media_type="text/event-stream")
 
     history = get_chat_history(chat_id=request.chat_id)
     slots = get_or_create_state(chat_id=request.chat_id)
@@ -90,4 +105,4 @@ def delete_chat(chat_id: str = Path(...)):
 
 @router.post("/createPlan")
 def create_plan(request: CreatePlanRequest):
-    return None
+    return mock_create_plan()

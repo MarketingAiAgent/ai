@@ -4,6 +4,7 @@ from collections import deque
 
 from .orchestrator.state import return_initial_state
 from .orchestrator.graph import orchestrator_app
+from app.mock.chat import *
 
 async def stream_agent(chat_id, history, active_task, conn_str, schema_info, message):
     state = return_initial_state(chat_id, history, active_task, conn_str, schema_info, message)
