@@ -48,32 +48,38 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str):
 
     try:
         collection = db.messages
-        now = datetime.now(ZoneInfo("Asia/Seoul"))
-
-        messages_to_insert = [
-            {
-                "message_id": uuid.uuid4().hex,
-                "chat_id": chat_id,
-                "speaker": "user",
-                "timestamp": now,
-                "content": user_message,
-            },
-            {
-                "message_id": uuid.uuid4().hex,
-                "chat_id": chat_id,
-                "speaker": "ai",
-                "timestamp": now,
-                "content": agent_message,
-            }
-        ]
+        base_time = datetime.now(ZoneInfo("Asia/Seoul"))
         
-        result: InsertManyResult = collection.insert_many(messages_to_insert)
-
-        if not result.acknowledged:
-            logger.error(f"Failed to save messages for chat_id '{chat_id}'.")
+        # 유저 메시지 먼저 저장 (더 이른 타임스탬프)
+        user_message_data = {
+            "message_id": uuid.uuid4().hex,
+            "chat_id": chat_id,
+            "speaker": "user",
+            "timestamp": base_time,
+            "content": user_message,
+        }
+        
+        user_result = collection.insert_one(user_message_data)
+        if not user_result.acknowledged:
+            logger.error(f"Failed to save user message for chat_id '{chat_id}'.")
+            return False
+            
+        # AI 메시지는 약간의 시간 간격을 두고 저장 (더 늦은 타임스탬프)
+        ai_message_data = {
+            "message_id": uuid.uuid4().hex,
+            "chat_id": chat_id,
+            "speaker": "ai",
+            "timestamp": base_time.replace(microsecond=base_time.microsecond + 1000),  # 1ms 후
+            "content": agent_message,
+        }
+        
+        ai_result = collection.insert_one(ai_message_data)
+        if not ai_result.acknowledged:
+            logger.error(f"Failed to save AI message for chat_id '{chat_id}'.")
             return False
 
-        inserted_message_ids = result.inserted_ids
+        # message_id들을 수집
+        inserted_message_ids = [user_message_data["message_id"], ai_message_data["message_id"]]
 
         chats_collection = db.chats
         update_result: UpdateResult = chats_collection.update_one(
@@ -85,7 +91,7 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str):
                     }
                 },
                 "$set": { 
-                    "last_updated": now 
+                    "last_updated": base_time 
                 }
             },
             upsert=True 
