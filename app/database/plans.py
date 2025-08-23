@@ -44,3 +44,28 @@ def create_plan(plan_id: str, user_id: str, company: str, target_type: str, plan
     except Exception as e:
         logger.error(f"Error creating plan for company '{company}': {e}")
         return None
+
+def save_design(plan_id: str, url: str):
+    if db is None:
+        logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
+        return None
+    
+    try:
+        collection = db.plans
+        now = datetime.now(ZoneInfo("Asia/Seoul"))
+
+        update_data = {
+            "url": url,
+            "last_updated": now
+        }
+
+        result: UpdateResult = collection.update_one(
+            {"plan_id": plan_id},
+            {"$set": update_data}
+        )
+        
+        return True
+    
+    except Exception as e:
+        logger.error(f"Error saving design for plan '{plan_id}': {e}")
+        return False
