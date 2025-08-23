@@ -20,20 +20,13 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
 
     chat_title = await generate_chat_title(request.user_message)
     chat_id = crete_chat(user_id=request.user_id, title=chat_title)
-
-    slots = get_or_create_state(chat_id=chat_id)
     
     history = []  
-    current_active_task = ActiveTask(
-        task_id=chat_id,
-        status="in_progress",
-        slots=PromotionSlots(**slots)
-    )
 
     response_stream = stream_agent(
         chat_id=chat_id,
         history=history, 
-        active_task=current_active_task, 
+        active_task=None, 
         conn_str=settings.CONN_STR, 
         schema_info=settings.SCHEMA_INFO, 
         message=request.user_message

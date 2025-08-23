@@ -31,16 +31,16 @@ async def word_stream(text: str) -> AsyncGenerator[str, None]:
 async def healthz():
     return {"ok": True}
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # 유효성 검사 에러의 상세 내용을 로그로 출력
-    logger.error(f"Validation error for request to {request.url}: {exc.errors()}")
+# @app.exception_handler(RequestValidationError)
+# async def validation_exception_handler(request: Request, exc: RequestValidationError):
+#     # 유효성 검사 에러의 상세 내용을 로그로 출력
+#     logger.error(f"Validation error for request to {request.url}: {exc.errors()}")
 
-    # 기본 FastAPI 에러 응답 형식을 그대로 사용하려면 아래와 같이 JSONResponse를 반환
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
-    )
+#     # 기본 FastAPI 에러 응답 형식을 그대로 사용하려면 아래와 같이 JSONResponse를 반환
+#     return JSONResponse(
+#         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#         content={"detail": exc.errors()},
+#     )
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
