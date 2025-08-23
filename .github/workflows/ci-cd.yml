@@ -1,0 +1,69 @@
+name: Deploy FastAPI App to AKS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AZURE_RESOURCE_GROUP: "rg-market-ai-agent"
+  AZURE_ACR_NAME: "minitiacr"
+  AZURE_AKS_CLUSTER_NAME: "minti-aks" 
+  IMAGE_REPOSITORY_NAME: "fastapi"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 소스 코드 체크아웃
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # 2. Azure CLI 로그인 (AZURE_CREDENTIALS Secret 사용)
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 3. Azure Container Registry(ACR) 로그인
+      - name: Login to Azure Container Registry
+        run: az acr login --name ${{ env.AZURE_ACR_NAME }}
+
+      # 4. Docker 이미지 빌드 및 ACR에 푸시
+      - name: Build and push Docker image to ACR
+        run: |
+          docker build . -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/${{ env.IMAGE_REPOSITORY_NAME }}:${{ github.sha }}
+          docker push ${{ env.AZURE_ACR_NAME }}.azurecr.io/${{ env.IMAGE_REPOSITORY_NAME }}:${{ github.sha }}
+
+      # 5. AKS 클러스터 컨텍스트 설정
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          cluster-name: ${{ env.AZURE_AKS_CLUSTER_NAME }}
+          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
+
+      # 6. GitHub Secrets를 사용하여 Kubernetes Secret 동적 생성
+      - name: Create FastAPI Kubernetes Secrets
+        run: |
+          kubectl create secret generic fastapi-app-secrets \
+            --from-literal=COSMOS_DB_CONNECTION_STRING='${{ secrets.COSMOS_DB_CONNECTION_STRING }}' \
+            --from-literal=SUPABASE_ANON_KEY='${{ secrets.SUPABASE_ANON_KEY }}' \
+            --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+            --from-literal=GOOGLE_API_KEY='${{ secrets.GOOGLE_API_KEY }}' \
+            --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
+            --from-literal=TAVILY_API_KEY='${{ secrets.TAVILY_API_KEY }}' \
+            --from-literal=CONN_STR='${{ secrets.CONN_STR }}' \
+            --from-literal=SCHEMA_INFO='${{ secrets.SCHEMA_INFO }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # 7. Kubernetes에 배포
+      - name: Deploy to AKS
+        uses: Azure/k8s-deploy@v4
+        with:
+          manifests: |
+            k8s/configmap.yml
+            k8s/deployment.yml
+            k8s/service.yml
+          images: |
+            ${{ env.AZURE_ACR_NAME }}.azurecr.io/${{ env.IMAGE_REPOSITORY_NAME }}:${{ github.sha }}
+          namespace: 'default'

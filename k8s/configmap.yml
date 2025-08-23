@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastapi-app-configmap
+data:
+  PROJECT_NAME: "AI Agent tool for Marketer"
+  API_VERSION_STR: "/api/v1"
+  LOG_LEVEL: "DEBUG"
+  SUPERBASE_URL: "https://pvhqgrqyquphqtmqxqih.supabase.co"

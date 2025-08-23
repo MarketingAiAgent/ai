@@ -1,0 +1,38 @@
+# Python virtual environment
+venv
+.venv
+env/
+ENV/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor specific files
+.idea/
+.vscode/
+.DS_Store
+
+# Git
+.git/
+
+# Build artifacts and distribution files
+build/
+dist/
+*.egg-info/
+sdist/
+*.spec
+
+# Local environment variables
+.env**
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# CI/CD and Kubernetes configuration
+.github/
+k8s/

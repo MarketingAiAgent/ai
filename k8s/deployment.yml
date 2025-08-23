@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-app-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fastapi-app
+  template:
+    metadata:
+      labels:
+        app: fastapi-app
+    spec:
+      containers:
+      - name: fastapi-app-container 
+        image: minitiacr.azurecr.io/fastapi:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: fastapi-app-secrets
+        - configMapRef:
+            name: fastapi-app-configmap
+        resources:
+          requests:
+            memory: "256Mi" 
+            cpu: "100m"     
+          limits:
+            memory: "512Mi" 
+            cpu: "500m"    
