@@ -23,7 +23,7 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
     chat_title = await generate_chat_title(request.message)
     chat_id = crete_chat(user_id=request.user_id, title=chat_title)
 
-    return chat_id
+    return {"chatId": chat_id}
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest = Body(...)):
