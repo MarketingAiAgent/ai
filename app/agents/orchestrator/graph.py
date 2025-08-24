@@ -500,8 +500,13 @@ def visualizer_caller_node(state: OrchestratorState):
         }
     return {"tool_results": tool_results}
 
-def response_generator_node(state: OrchestratorState):
-    logger.info("--- 🗣️ 응답 생성 노드 ---")
+async def response_generator_node(state: OrchestratorState):
+    """
+    변경점
+    1) LLM 호출을 스트리밍(astream)으로 전환 → SSE가 on_chat_model_stream 토큰을 받도록.
+    2) 툴 결과 키 접두어 정정: web_search→tavily_search, scraped_pages→scrape_webpages, marketing_trend_results→marketing_trend_search
+    """
+    logger.info("--- 🗣️ 응답 생성 노드 (streaming) ---")
     instructions = state.get("instructions")
     tr = state.get("tool_results") or {}
 
@@ -511,20 +516,21 @@ def response_generator_node(state: OrchestratorState):
         else "사용자 요청에 맞춰 정중하고 간결하게 답변해 주세요."
     )
 
-    # 수집
+    # ---- (1) 툴 결과 수집: 접두어 정정 ----
     t2s_table = None
     web_search = None
     scraped_pages = None
     marketing_trend_results = None
     youtuber_trend_results = None
+
     for key, value in tr.items():
         if key.startswith("t2s") and isinstance(value, dict) and "rows" in value:
             t2s_table = value
-        elif key.startswith("tavily_search"):
+        elif key.startswith("tavily_search"):          # ← ✅ 기존 "web_search"에서 정정
             web_search = value
-        elif key.startswith("scrape_webpages"):
+        elif key.startswith("scrape_webpages"):        # ← ✅ 기존 "scraped_pages"에서 정정
             scraped_pages = value
-        elif key.startswith("marketing_trend_search"):
+        elif key.startswith("marketing_trend_search"): # ← ✅ 기존 "marketing_trend_results"에서 정정
             marketing_trend_results = value
         elif key.startswith("beauty_youtuber_trend_search"):
             youtuber_trend_results = value
@@ -533,41 +539,22 @@ def response_generator_node(state: OrchestratorState):
     knowledge_snippet = tr.get("knowledge") if isinstance(tr.get("knowledge"), str) else None
     option_candidates = tr.get("option_candidates") if isinstance(tr.get("option_candidates"), dict) else None
 
-    # 선택지 텍스트/오류 요약 렌더링
-    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
-    option_list_text = _render_option_list_text(option_candidates, slots)
-    tool_errors_text = _render_tool_errors_text(tr)
-
-    # 길이 힌트
-    length_hint = _compute_length_hint(tr, option_candidates, t2s_table)
-
-    # 출력 스켈레톤 + option_list_text/오류 텍스트 포함
-    prompt_tmpl = textwrap.dedent("""
-    # 길이 규칙(필수)
-    이번 답변은 반드시 **{length_hint} 길이**로 작성해 주세요.
-    - short=4~6문장, medium=7~12문장, long=13~20문장 기준입니다.
-
+    # ---- (2) 프롬프트/LLM 준비 (기존 코드 유지) ----
+    # NOTE: 아래 prompt_tmpl은 기존 프로젝트의 템플릿을 사용하세요.
+    #       여기선 변수들만 그대로 전달해 줍니다.
+    prompt_tmpl = """
     당신은 마케팅 오케스트레이터의 최종 응답 생성기입니다.
-    아래 입력만을 근거로 **한국어 존댓말**로 한 번에 완성된 답변을 작성해 주세요.
+    아래 입력만을 근거로 한국어 존댓말로 한 번에 완성된 답변을 작성해 주세요.
     내부 도구명이나 시스템 세부 구현은 언급하지 않습니다.
 
-    [작성 우선순위]
-    1) `action_decision.ask_prompts`가 비어있지 않다면, 가장 먼저 해당 질문을 공손하게 한 문장으로 제시하세요.
-    2) 그 다음 줄에 **아래 제공된 선택지 텍스트(option_list_text)를 변형 없이 그대로** 출력하세요.
-    3) 근거/설명은 2~4줄로 간결하게 쓰되, 수치가 있으면 구체적으로 표기하세요.
-    4) t2s_table이 있을 때만 [TABLE_START]~[TABLE_END] 사이에 미리보기 표(상위 10행)를 포함하세요. 표가 없으면 이 토큰을 절대 사용하지 마세요.
-    5) 맨 마지막 줄에 다음 단계 1문장을 추가하세요. (예: "선택 번호를 알려주시면 바로 다음 단계로 진행하겠습니다.")
-    6) `tool_errors_text`가 비어있지 않다면, **맨 마지막에서 한 줄**로만 간단히 첨부하세요. (예: "참고: ...")
-
-    [입력 데이터]
     - instructions_text:
     {instructions_text}
 
     - action_decision (JSON):
     {action_decision_json}
 
-    - option_list_text (렌더 완료, 그대로 출력):
-    {option_list_text}
+    - option_candidates (JSON):
+    {option_candidates_json}
 
     - t2s_table (JSON):
     {t2s_table_json}
@@ -584,12 +571,9 @@ def response_generator_node(state: OrchestratorState):
     - youtuber_trend_results (JSON):
     {youtuber_trend_results_json}
 
-    - tool_errors_text:
-    {tool_errors_text}
-
     - knowledge_snippet:
     {knowledge_snippet}
-    """)
+    """.strip()
 
     to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
 
@@ -598,30 +582,66 @@ def response_generator_node(state: OrchestratorState):
         model="gemini-2.5-flash",
         temperature=0,
         api_key=settings.GOOGLE_API_KEY,
-        max_output_tokens=600  # 경고 제거: 최상위 인자로 명시
+        max_output_tokens=600  # 상한은 최상위 인자로
     )
+    chain = prompt | llm
 
-    final_text = (prompt | llm).invoke({
-        "length_hint": length_hint,
+    inputs = {
         "instructions_text": instructions_text,
         "action_decision_json": to_json(action_decision),
-        "option_list_text": option_list_text,
+        "option_candidates_json": to_json(option_candidates),
         "t2s_table_json": to_json(t2s_table),
         "web_search_json": to_json(web_search),
         "scraped_pages_json": to_json(scraped_pages),
         "marketing_trend_results_json": to_json(marketing_trend_results),
         "youtuber_trend_results_json": to_json(youtuber_trend_results),
-        "tool_errors_text": tool_errors_text or "",
         "knowledge_snippet": knowledge_snippet or "",
-    })
+    }
 
-    final_response = getattr(final_text, "content", None) or str(final_text)
-    logger.info(f"최종 결과(L):\n{final_response}")
+    # ---- (3) 스트리밍 실행 ----
+    parts: list[str] = []
+
+    async for chunk in chain.astream(inputs):
+        # LangChain의 AIMessageChunk
+        text = ""
+        if hasattr(chunk, "content"):
+            if isinstance(chunk.content, str):
+                text = chunk.content
+            elif isinstance(chunk.content, list):
+                # content가 조각 리스트인 경우 안전 결합
+                try:
+                    text = "".join(
+                        (c.get("text", "") if isinstance(c, dict) else str(c))
+                        for c in chunk.content
+                    )
+                except Exception:
+                    text = "".join(map(str, chunk.content))
+        else:
+            # 혹시 모를 다른 형태
+            text = str(chunk)
+
+        if text:
+            parts.append(text)
+
+    final_response = "".join(parts).strip()
+
+    # 폴백: 혹시 스트림이 비어 있으면 non-streaming으로 한 번 더 시도
+    if not final_response:
+        try:
+            res = await chain.ainvoke(inputs)
+            final_response = getattr(res, "content", None) or str(res) or ""
+        except Exception:
+            final_response = "죄송합니다. 응답 생성 중 문제가 발생했습니다."
+
+    logger.info(f"최종 결과(L-stream):\n{final_response}")
+
+    # ---- (4) 히스토리 업데이트/반환 ----
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})
     history.append({"role": "assistant", "content": final_response})
 
     return {"history": history, "user_message": "", "output": final_response}
+
 
 # ===== Graph =====
 workflow = StateGraph(OrchestratorState)

@@ -50,7 +50,6 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph
         collection = db.messages
         base_time = datetime.now(ZoneInfo("Asia/Seoul"))
         
-        # 유저 메시지 먼저 저장 (더 이른 타임스탬프)
         user_message_data = {
             "message_id": uuid.uuid4().hex,
             "chat_id": chat_id,
@@ -66,7 +65,6 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph
             logger.error(f"Failed to save user message for chat_id '{chat_id}'.")
             return False
             
-        # AI 메시지는 약간의 시간 간격을 두고 저장 (더 늦은 타임스탬프)
         ai_message_data = {
             "message_id": uuid.uuid4().hex,
             "chat_id": chat_id,
