@@ -75,7 +75,7 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
         "   - 대신 '표의 의미'와 '필터/집계/정렬의 개념'을 분명히 설명한다.\n"
         "   - 출력 표는 다음 형식을 권장: 첫 컬럼 이름은 반드시 name(타겟 표시용). 그 외에는 스키마에서 가장 적합한 지표/수치를 1~3개 선택.\n"
         "   - 각 행에 짧은 사람이 읽을 설명 텍스트 rationale 컬럼을 가능하면 포함(스키마에 없으면 비워도 됨).\n"
-        "   - 상위 {top_k}개만 포함하도록 제한하는 문구를 포함.\n"
+        "   - 상위 {{top_k}}개만 포함하도록 제한하는 문구를 포함.\n"
         "3) WebPlan.query는 간결한 1줄 검색어로 작성. scope/period/audience를 녹여 검색성 높이기.\n"
         "4) JSON 외 텍스트 절대 금지.\n"
     )

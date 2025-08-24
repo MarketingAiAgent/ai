@@ -152,8 +152,8 @@ def _build_question_messages(
         "{\n"
         '  "message": "한 문장 질문(존댓말)",\n'
         '  "options": [\n'
-        '     {"label":"타겟명","reason":"1줄 근거","concept_suggestion":"선택"},\n'
-        '     {"label":"...", "reason":"...", "concept_suggestion":"선택"}\n'
+        '     {{"label":"타겟명","reason":"1줄 근거","concept_suggestion":"선택"}},\n'
+        '     {{"label":"...", "reason":"...", "concept_suggestion":"선택"}}\n'
         "  ],\n"
         '  "expect_fields": ["target"]\n'
         "}\n"

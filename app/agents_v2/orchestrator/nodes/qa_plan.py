@@ -114,7 +114,7 @@ def _build_messages(history: List[str], question: str) -> List[tuple]:
                 "visualize": True,
                 "viz_hint": "요일별 막대"
             },
-            "web": {"enabled": False, "query": None, "queries": [], "use_sources": ["supabase_marketing","supabase_beauty","tavily"], "top_k": 5, "scrape_k": 0}
+            "web": {{"enabled": False, "query": None, "queries": [], "use_sources": ["supabase_marketing","supabase_beauty","tavily"], "top_k": 5, "scrape_k": 0}}
         }, ensure_ascii=False)),
 
         # Web만
