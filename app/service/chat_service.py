@@ -29,7 +29,7 @@ async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stre
         yield chunk_str 
 
         graph_data = None
-        plan_data = ""
+        plan_data = None
         
         if chunk_str.startswith('data: '):
             try:
@@ -49,5 +49,7 @@ async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stre
         save_chat_message(
             chat_id=chat_id, 
             user_message=user_message,
-            agent_message=final_agent_message
+            agent_message=final_agent_message,
+            graph_data=graph_data,
+            plan_data=plan_data
         )
