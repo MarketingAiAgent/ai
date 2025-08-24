@@ -203,7 +203,7 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
     if missing:
         return state.model_copy(update={
             "response": f"리포트를 생성하려면 다음 정보가 필요합니다: {', '.join(missing)}",
-            "expect_fields": [],  # 상위 그래프에서 ASK 노드로 연결
+            "expect_fields": missing,  # 상위 그래프에서 ASK 노드로 연결
         })
 
     # 근거 bullets 수집
@@ -245,7 +245,7 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
             "response": out.message or "프로모션 리포트를 정리했습니다. 검토 후 확정해 주세요.",
             "report": out.report,
             "report_markdown": md,
-            "expect_fields": [],
+            "expect_fields": [],  # 리포트 완성 후 더 이상 입력 불필요
         })
 
     except Exception:
@@ -300,7 +300,7 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
                 risks=["성과 변동성", "재고/공급 리스크"],
                 next_steps=["예산/채널 배분 확정", "크리에이티브 샘플 작성", "추적 KPI 설정"],
                 markdown=md,
-            ).model_dump(),
+            ),
             "report_markdown": md,
             "expect_fields": [],
         })

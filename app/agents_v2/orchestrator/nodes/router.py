@@ -48,7 +48,7 @@ class RouterOutput(BaseModel):
     intent: Literal["QA", "Promotion", "Out-of-scope"] = Field(description="유저의 의도 파악하여 다음 단계 진행")
 
 # ===== Node =====
-def router_node(state: AgentState):
+def router_node(state: AgentState) -> AgentState:
     logger.info("===== 🤔 라우터 수립 노드 실행 =====")
     messages = _build_messages(state.history, state.user_message)
     prompt = ChatPromptTemplate.from_messages(messages)
@@ -64,9 +64,9 @@ def router_node(state: AgentState):
         result: RouterOutput = (prompt | llm | parser).invoke()
         logger.info(f"결과: {result.intent}")
         logger.info(f"===== 🤔 라우터 수립 노드 실행 완료 =====")
-        return {"intent": result.intent}
+        return state.model_copy(update={"intent": result.intent})
 
     except Exception as e:
         logger.error(f"===== 🤔 라우터 수립 노드 실행 중 오류 발생 =====")
         logger.error(f"오류 내용: {e}")
-        return {"intent": "Out-of-scope"}
+        return state.model_copy(update={"intent": "Out-of-scope"})

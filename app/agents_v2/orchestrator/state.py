@@ -38,14 +38,29 @@ class PromotionSlots(BaseModel):
     )
 
     # ---- 편의 메서드 ----
-    def merge_missing(self, other: "PromotionSlots") -> "PromotionSlots":
+    def merge_missing(self, other) -> "PromotionSlots":
+        if isinstance(other, dict):
+            other_audience = other.get("audience")
+            other_KPI = other.get("KPI")
+            other_concept = other.get("concept")
+            other_scope = other.get("scope")
+            other_period = other.get("period")
+            other_target = other.get("target")
+        else:
+            other_audience = other.audience
+            other_KPI = other.KPI
+            other_concept = other.concept
+            other_scope = other.scope
+            other_period = other.period
+            other_target = other.target
+            
         return PromotionSlots(
-            audience=self.audience or other.audience,
-            KPI=self.KPI or other.KPI,
-            concept=self.concept or other.concept,
-            scope=self.scope or other.scope,
-            period=self.period or other.period,
-            target=self.target or other.target,
+            audience=self.audience or other_audience,
+            KPI=self.KPI or other_KPI,
+            concept=self.concept or other_concept,
+            scope=self.scope or other_scope,
+            period=self.period or other_period,
+            target=self.target or other_target,
         )
 
     def decide_next_action(self) -> Literal["ASK_SCOPE_PERIOD", "ASK_TARGET_WITH_OPTIONS", "RECAP_CONFIRM"]:
@@ -73,6 +88,8 @@ class AgentState(BaseModel):
     qa_table: Optional[Dict[str, Any]] = Field(default=None)
     qa_chart: Optional[str] = Field(default=None)
     qa_snapshot: Optional[Dict[str, Any]] = Field(default=None)
+    qa_web_rows: Optional[List[Dict[str, Any]]] = Field(default=None)
+    qa_explanation: Optional[str] = Field(default=None)
     
     # 응답 관련
     response: Optional[str] = Field(default=None)
@@ -83,6 +100,14 @@ class AgentState(BaseModel):
     # 도구 실행 결과
     sql_rows: Optional[List[Dict[str, Any]]] = Field(default=None)
     web_rows: Optional[List[Dict[str, Any]]] = Field(default=None)
+    
+    # 분기 제어
+    expect_fields: List[str] = Field(default_factory=list)
+    options: Optional[List[Any]] = Field(default=None)
+    
+    # 리포트 관련
+    report: Optional[Any] = Field(default=None)
+    report_markdown: Optional[str] = Field(default=None)
     
     # 편의 메서드
     def promotion_slots_dict(self) -> Optional[Dict[str, Any]]:

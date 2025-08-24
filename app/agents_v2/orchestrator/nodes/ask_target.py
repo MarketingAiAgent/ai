@@ -233,7 +233,7 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
     if not slots or not slots.scope or not slots.period:
         return state.model_copy(update={
             "response": "스코프(브랜드/제품)와 기간을 먼저 알려주시면 타겟 후보를 추천드리겠습니다.",
-            "expect_fields": [],
+            "expect_fields": ["scope", "period"],
         })
 
     # 증거 병합

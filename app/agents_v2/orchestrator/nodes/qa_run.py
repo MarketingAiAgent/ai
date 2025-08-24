@@ -66,14 +66,7 @@ def qa_run_node(
     # ---- Web (외부 지식) ----
     if choice in ("web", "both") and web and web.enabled:
         try:
-            web_rows = execute_web_from_plan({
-                "enabled": True,
-                "query": web.query or (web.queries[0] if web.queries else None),
-                "queries": [],
-                "use_sources": web.use_sources or ["supabase_marketing","supabase_beauty","tavily"],
-                "top_k": int(web.top_k or 5),
-                "scrape_k": int(web.scrape_k or 0),
-            })
+            web_rows = execute_web_from_plan(web)
             updates["qa_web_rows"] = web_rows
 
             # 답변 노드 호환용 간단 스냅샷
