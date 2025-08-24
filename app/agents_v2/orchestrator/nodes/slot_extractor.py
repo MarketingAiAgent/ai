@@ -66,8 +66,8 @@ def slot_extractor_node(state: AgentState):
     logger.info("===== 🧩 슬롯 추출 노드 실행 =====")
     messages = _build_messages(state.history, state.user_message)
     prompt = ChatPromptTemplate.from_messages(messages)
-    parser = PydanticOutputParser(pydantic_object=SlotExtractorOutput)
-    llm = ChatGoogleGenerativeAI(
+    parser = PydanticOutptParser(pydantic_object=SlotExtractorOutput)
+    llm = ChatGoogleGeneruativeAI(
         model="gemini-2.5-flash",
         temperature=0,
         model_kwargs={"response_format": {"type": "json_object"}},

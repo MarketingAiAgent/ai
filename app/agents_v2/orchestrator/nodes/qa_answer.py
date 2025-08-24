@@ -8,13 +8,14 @@ from typing import Any, Dict, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
+from app.agents_v2.orchestrator.state import AgentState
 
 logger = logging.getLogger(__name__)
 
 # ---- Prompt ----
 ANSWER_PROMPT = """
 당신은 마케팅 데이터/트렌드 Q&A 도우미입니다.
-아래 입력을 바탕으로 한국어로 간결하고 실무 친화적으로 답하세요.
+아래 입력을 바탕으로 한국어로 정확하고 실무 친화적으로 답하세요.
 
 [사용자 질문]
 {question}
@@ -34,7 +35,6 @@ ANSWER_PROMPT = """
 
 # ---- Utilities ----
 def _preview_rows(table: Dict[str, Any], n: int = 10) -> str:
-    """rows 상위 n개를 JSON 문자열로 반환 (프롬프트 삽입용)."""
     try:
         rows = (table or {}).get("rows") or []
         head = rows[:n]
@@ -43,7 +43,6 @@ def _preview_rows(table: Dict[str, Any], n: int = 10) -> str:
         return "[]"
 
 def _sources_from_snapshot(snapshot: Dict[str, Any]) -> List[Dict[str, str]]:
-    """qa_snapshot에서 sources만 추출 (title/url)."""
     if not isinstance(snapshot, dict):
         return []
     out = []
@@ -55,13 +54,12 @@ def _sources_from_snapshot(snapshot: Dict[str, Any]) -> List[Dict[str, str]]:
     return out
 
 # ---- Node ----
-def qa_build_answer_node(state: Dict) -> Dict:
+def qa_build_answer_node(state: AgentState) -> AgentState:
     """
     입력 (있을 수 있는 키):
       - user_message: str
       - qa_table: {rows, columns, row_count}
       - qa_chart: str (Plotly JSON)
-      - qa_explanation: str (시각화 해설)
       - qa_snapshot: {notes: [..], sources: [...]}
 
     출력:
@@ -75,13 +73,11 @@ def qa_build_answer_node(state: Dict) -> Dict:
         "await_user": False
       }
     """
-    question: str = state.get("user_message") or ""
-    table: Dict[str, Any] = state.get("qa_table") or {}
-    snapshot: Dict[str, Any] = state.get("qa_snapshot") or {}
-    chart_json: Optional[str] = state.get("qa_chart")
-    viz_explanation: str = state.get("qa_explanation") or ""
+    question: str = state.user_message or ""
+    table: Dict[str, Any] = state.qa_table or {}
+    snapshot: Dict[str, Any] = state.qa_snapshot or {}
+    chart_json: Optional[str] = state.qa_chart
 
-    # 1) LLM 답변 생성 (표/스냅샷 기반 요약)
     try:
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
@@ -98,25 +94,9 @@ def qa_build_answer_node(state: Dict) -> Dict:
         logger.exception("[qa_build_answer_node] LLM 요약 실패: %s", e)
         llm_text = ""
 
-    # 2) 최종 텍스트 합성 (시각화 해설 우선 + LLM 요약 보강)
     parts: List[str] = []
-    if viz_explanation:
-        parts.append(viz_explanation.strip())
     if llm_text:
         parts.append(llm_text)
     final_text = "\n\n".join(parts) if parts else "요청하신 내용을 바탕으로 핵심을 요약했습니다."
 
-    # 3) 첨부 구성
-    attachments = {
-        "chart_json": chart_json,
-        "table_preview": (table.get("rows") or [])[:10],
-        "sources": _sources_from_snapshot(snapshot),
-    }
-
-    # 4) 응답 객체
-    state["response"] = {
-        "text": final_text,
-        "attachments": attachments,
-        "await_user": False,
-    }
-    return state
+    return {"response": final_text, "graph": chart_json, "table": (table.get("rows") or [])[:10], "snapshot": snapshot}

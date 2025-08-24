@@ -11,7 +11,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import PromotionSlots
+from app.agents_v2.orchestrator.state import AgentState, PromotionSlots
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,6 @@ ToolChoice = Literal["sql", "web", "both", "none"]
 AllowedSources = Literal["supabase_marketing", "supabase_beauty", "tavily"]
 
 class PlanningNote(BaseModel):
-    """
-    구조화된 CoT(간결·구조화된 사고 기록).
-    - 자유서술이 아니라, 실행에 꼭 필요한 결정을 필드화.
-    """
     goal: str = Field(description="이번 턴의 목적(예: 20대 대상, 브랜드 기준 타겟 후보 상위 3개)")
     needed_table: str = Field(description="원하는 표의 의미/행 단위 정의(브랜드/제품 등)와 집계 기준")
     filters: List[str] = Field(default_factory=list, description="기간·오디언스·기타 필터 조건(스키마명 지정 금지)")
@@ -173,17 +169,9 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
 # Node
 # ---------------------------------------------------------------------
 
-def plan_option_prompts_node(state: Dict) -> Dict:
-    """
-    입력:
-      - state = { "history": List[str], "slots": PromotionSlots(dict) }
-    출력:
-      - { "tool_plans": OptionToolPlans(dict) }
-        * executors가 그대로 사용할 수 있는 구조
-        * planning 필드에 구조화 사고(PlanningNote) 포함(디버그/추적용)
-    """
-    history: List[str] = state.get("history", []) or []
-    slots_dict: Dict = state.get("slots") or {}
+def plan_option_prompts_node(state: AgentState) -> AgentState:
+    history = state.history or []
+    slots_dict =  state.promotion_slots() or {}
 
     try:
         slots = PromotionSlots.model_validate(slots_dict)
@@ -237,7 +225,6 @@ def plan_option_prompts_node(state: Dict) -> Dict:
             )
         )
 
-    # 정규화
     plans.sql.top_k = max(1, min(5, plans.sql.top_k or 3))
     plans.web.top_k = max(1, min(5, plans.web.top_k or 3))
     plans.web.scrape_k = max(0, min(5, plans.web.scrape_k or 0))
@@ -247,4 +234,4 @@ def plan_option_prompts_node(state: Dict) -> Dict:
     if not plans.web.query and plans.web.queries:
         plans.web.query = plans.web.queries[0]
 
-    return {"tool_plans": plans.model_dump()}
+    return {"tool_plans": plans}

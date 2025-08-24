@@ -62,7 +62,10 @@ class AgentState(BaseModel):
     promotion_slots: Optional[PromotionSlots] = None
     response: Optional[str] = None
     qa_plan: Optional[QAPlan] = None
-    
+    graph: Optional[Dict[str, Any]] = None
+    table: Optional[Dict[str, Any]] = None
+    snapshot: Optional[Dict[str, Any]] = None
+    tool_plan
 
     def __init__(self, history: List[Dict[str, str]], user_message: str, promotion_slots: Optional[PromotionSlots] = None):
         self.history = history
@@ -70,3 +73,4 @@ class AgentState(BaseModel):
         self.intent = "Out-of-scope"
         self.promotion_slots = promotion_slots
         self.response = None
+        self.graph = None
