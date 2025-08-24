@@ -41,7 +41,7 @@ def crete_chat(user_id: str, title:str):
         logger.error(f"❌ An error occurred while creating a chat for user '{user_id}': {e}")
         return None
         
-def save_chat_message(chat_id: str, user_message: str, agent_message: str):
+def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph_data: dict, plan_data: str):
     if db is None:
         logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
         return None
@@ -71,6 +71,8 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str):
             "speaker": "ai",
             "timestamp": base_time.replace(microsecond=base_time.microsecond + 1000),  # 1ms 후
             "content": agent_message,
+            "graph_data": graph_data,
+            "plan_data": plan_data
         }
         
         ai_result = collection.insert_one(ai_message_data)
@@ -78,7 +80,6 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str):
             logger.error(f"Failed to save AI message for chat_id '{chat_id}'.")
             return False
 
-        # message_id들을 수집
         inserted_message_ids = [user_message_data["message_id"], ai_message_data["message_id"]]
 
         chats_collection = db.chats
