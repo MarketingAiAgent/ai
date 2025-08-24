@@ -10,7 +10,8 @@ class ChatRequest(CamelCaseModel):
 
 class NewChatRequest(CamelCaseModel):
     company: str
-    user_id: Optional[str] = None
+    user_id: Optional[str]
+    message: str
 
 class CreatePlanRequest(CamelCaseModel):
     chat_id: str

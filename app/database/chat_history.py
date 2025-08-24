@@ -9,6 +9,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+
 def crete_chat(user_id: str, title:str):
     if db is None:
         logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
