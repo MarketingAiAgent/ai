@@ -65,7 +65,6 @@ class SlotExtractorOutput(BaseModel):
 def slot_extractor_node(state: AgentState) -> AgentState:
     logger.info("===== 🧩 슬롯 추출 노드 실행 =====")
     messages = _build_messages(state.history, state.user_message)
-    prompt = ChatPromptTemplate.from_messages(messages)
     parser = PydanticOutputParser(pydantic_object=SlotExtractorOutput)
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
@@ -74,7 +73,7 @@ def slot_extractor_node(state: AgentState) -> AgentState:
         api_key=settings.GOOGLE_API_KEY
     )
     try:
-        result: SlotExtractorOutput = (prompt | llm | parser).invoke()
+        result: SlotExtractorOutput = (llm | parser).invoke(messages)
         logger.info(f"결과: {result}")
         logger.info(f"===== ❓ 슬롯 추출 노드 실행 완료 =====")
         

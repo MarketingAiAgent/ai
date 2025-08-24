@@ -12,29 +12,10 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state    import PromotionSlots
-from app.agents_v2.orchestrator.state    import AgentState
+from app.agents_v2.orchestrator.state import PromotionSlots, AgentState, OptionCandidate, AskTargetOutput
 
 logger = logging.getLogger(__name__)
 ScopeLiteral = Literal["브랜드", "제품"]
-
-
-# ===== 출력 모델 =====
-class OptionCandidate(BaseModel):
-    label: str
-    reason: str
-    concept_suggestion: Optional[str] = None
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
-
-class AskTargetOutput(BaseModel):
-    """
-    LLM이 '질문 문장'과 '옵션 리스트'를 제안.
-    - message: 헤더성 질문(한 문장)
-    - options: 옵션 n개 (label/reason/optional concept_suggestion)
-    """
-    message: str
-    options: List[OptionCandidate]
-    expect_fields: List[Literal["target"]] = Field(default_factory=lambda: ["target"])
 
 
 # ===== 유틸: SQL/WEB 증거 병합 (스키마 모름 전제) =====
@@ -261,13 +242,11 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
 
     # LLM 호출(질문/옵션 생성)
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
-    prompt = ChatPromptTemplate.from_messages(
-        _build_question_messages(slots.scope, slots.audience, evidences, top_k)
-    )
+    messages = _build_question_messages(slots.scope, slots.audience, evidences, top_k)
     parser = PydanticOutputParser(pydantic_object=AskTargetOutput)
 
     try:
-        out: AskTargetOutput = (prompt | llm | parser).invoke({})
+        out: AskTargetOutput = (llm | parser).invoke(messages)
         # 상한 적용
         options = out.options[:top_k]
 

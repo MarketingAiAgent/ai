@@ -14,6 +14,7 @@ from app.database.promotion_slots import get_or_create_state
 from app.service.chat_service import generate_chat_title, stream_and_save_wrapper
 from app.mock import get_mock_response, mock_stream_with_save 
 from app.mock.plan import mock_create_plan
+from app.service.stream import stream_agent_v2
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -41,13 +42,17 @@ async def chat_stream(request: ChatRequest = Body(...)):
         slots=PromotionSlots(**slots)
     )
 
-    response_stream = stream_agent(
+    sql_context = {
+        "conn_str": settings.CONN_STR,
+        "schema_info": settings.SCHEMA_INFO
+    }
+    
+    response_stream = stream_agent_v2(
         chat_id=request.chat_id,
         history=history, 
-        active_task=current_active_task, 
-        conn_str=settings.CONN_STR, 
-        schema_info=settings.SCHEMA_INFO, 
-        message=request.user_message
+        user_message=request.user_message,
+        sql_context=sql_context,
+        promotion_slots=slots
     )
     
     final_stream = stream_and_save_wrapper(request.chat_id, request.user_message, response_stream)

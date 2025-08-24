@@ -25,12 +25,12 @@ def _ensure_table_payload(table: Any) -> Dict[str, Any]:
     }
 
 
-def run_t2s_agent_with_instruction(state: Dict[str, Any], instruction: str) -> Dict[str, Any]:
+def run_t2s_agent_with_instruction(sql_context: Dict[str, Any], instruction: str) -> Dict[str, Any]:
     """Text-to-SQL 실행 (플래너가 만든 instruction 그대로 사용)."""
     result = call_sql_generator(
         message=instruction,
-        conn_str=state["conn_str"],
-        schema_info=state["schema_info"],
+        conn_str=sql_context["conn_str"],
+        schema_info=sql_context["schema_info"],
     )
     table = result.get("data_json")
     if isinstance(table, str):

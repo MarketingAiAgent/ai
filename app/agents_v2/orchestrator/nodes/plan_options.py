@@ -11,46 +11,13 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import AgentState, PromotionSlots
+from app.agents_v2.orchestrator.state import AgentState, PromotionSlots, OptionToolPlans, ToolChoice, OptionPlanningNote, SQLPlan, OptionWebPlan, AllowedSources
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------
-
-ToolChoice = Literal["sql", "web", "both", "none"]
-AllowedSources = Literal["supabase_marketing", "supabase_beauty", "tavily"]
-
-class PlanningNote(BaseModel):
-    goal: str = Field(description="이번 턴의 목적(예: 20대 대상, 브랜드 기준 타겟 후보 상위 3개)")
-    needed_table: str = Field(description="원하는 표의 의미/행 단위 정의(브랜드/제품 등)와 집계 기준")
-    filters: List[str] = Field(default_factory=list, description="기간·오디언스·기타 필터 조건(스키마명 지정 금지)")
-    metrics_preference: List[str] = Field(default_factory=list, description="선호 지표의 개념적 우선순위(스키마에 없으면 대체 허용)")
-    ranking_logic: str = Field(description="정렬/상위 선정의 개념적 기준(스키마 기반 자유 선택)")
-    notes: Optional[str] = None
-
-class SQLPlan(BaseModel):
-    enabled: bool = True
-    instruction: Optional[str] = None       # 최종 자연어 인스트럭션(우선)
-    queries: List[str] = Field(default_factory=list)  # 백업 후보(선택)
-    top_k: int = 3
-
-class WebPlan(BaseModel):
-    enabled: bool = True
-    query: Optional[str] = None
-    queries: List[str] = Field(default_factory=list)
-    use_sources: List[AllowedSources] = Field(
-        default_factory=lambda: ["supabase_marketing", "supabase_beauty", "tavily"]
-    )
-    top_k: int = 3
-    scrape_k: int = 0
-
-class OptionToolPlans(BaseModel):
-    tool_choice: ToolChoice
-    planning: PlanningNote
-    sql: SQLPlan
-    web: WebPlan
 
 
 # ---------------------------------------------------------------------
@@ -85,7 +52,7 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
         # --- 브랜드 예시 ---
         ("human", json.dumps({
             "history": ["20대 대상 프로모션 해볼래!"],
-            "slots": {"scope": "브랜드", "period": "다음 달 4주", "audience": "20대", "target": None, "KPI": None, "concept": None}
+            "slots": {{"scope": "브랜드", "period": "다음 달 4주", "audience": "20대", "target": None, "KPI": None, "concept": None}}
         }, ensure_ascii=False)),
         ("ai", json.dumps({
             "tool_choice": "both",
@@ -122,7 +89,7 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
         # --- 제품 예시 ---
         ("human", json.dumps({
             "history": ["브랜드보단 제품 기준으로 가자."],
-            "slots": {"scope": "제품", "period": "이번 달 2주", "audience": None, "target": None, "KPI": None, "concept": None}
+            "slots": {{"scope": "제품", "period": "이번 달 2주", "audience": None, "target": None, "KPI": None, "concept": None}}
         }, ensure_ascii=False)),
         ("ai", json.dumps({
             "tool_choice": "both",
@@ -177,7 +144,6 @@ def plan_option_prompts_node(state: AgentState) -> AgentState:
         slots = PromotionSlots()
 
     messages = _build_messages(history, slots)
-    prompt = ChatPromptTemplate.from_messages(messages)
     parser = PydanticOutputParser(pydantic_object=OptionToolPlans)
 
     llm = ChatGoogleGenerativeAI(
@@ -187,13 +153,13 @@ def plan_option_prompts_node(state: AgentState) -> AgentState:
     )
 
     try:
-        plans: OptionToolPlans = (prompt | llm | parser).invoke({})
+        plans: OptionToolPlans = (llm | parser).invoke(messages)
     except Exception:
         logger.exception("[plan_option_prompts_node] LLM 실패 → 최소 폴백 계획 생성")
         scope_kw = "브랜드" if slots.scope == "브랜드" else "제품"
         plans = OptionToolPlans(
             tool_choice="both",
-            planning=PlanningNote(
+            planning=OptionPlanningNote(
                 goal=f"{scope_kw} 기준 상위 3개 후보 도출",
                 needed_table=f"행={scope_kw}; 열={scope_kw} 표시명(name)과 스키마에서 가장 유용한 핵심 지표 1~3개",
                 filters=[f"기간: {slots.period or '최근 기간'}"] + ([f"오디언스: {slots.audience}"] if slots.audience else []),
@@ -213,7 +179,7 @@ def plan_option_prompts_node(state: AgentState) -> AgentState:
                 queries=[],
                 top_k=3
             ),
-            web=WebPlan(
+            web=OptionWebPlan(
                 enabled=True,
                 query=f"{slots.audience or ''} {scope_kw} 트렌드 {slots.period or ''}".strip(),
                 queries=[],

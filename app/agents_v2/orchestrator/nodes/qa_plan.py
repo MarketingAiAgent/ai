@@ -9,49 +9,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agents_v2.orchestrator.state import AgentState
+from app.agents_v2.orchestrator.state import AgentState, QAPlan, Choice, PlanningNote, T2SPlan, WebPlan, AllowedSources
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-Choice = Literal["t2s", "web", "both", "none"]
-AllowedSources = Literal["supabase_marketing", "supabase_beauty", "tavily"]
-
 
 # -------------------- Schemas --------------------
-
-class PlanningNote(BaseModel):
-    """스키마/컬럼명을 모른다는 전제의 CoT 요약(구조화)."""
-    user_intent: str
-    needed_table: str                  # 예: "행=요일, 지표=전환 관련 핵심 요약"
-    filters: List[str] = Field(default_factory=list)        # 기간/세그먼트 등(스키마 명시 금지)
-    granularity: Optional[str] = None  # 일/주/월, 캠페인/채널 등
-    comparison: Optional[str] = None   # 전년동기/직전기간 등
-    why_t2s: Optional[str] = None
-    why_web: Optional[str] = None
-
-class T2SPlan(BaseModel):
-    enabled: bool = True
-    instruction: Optional[str] = None  
-    top_rows: int = 100
-    visualize: bool = True
-    viz_hint: Optional[str] = None     
-
-class WebPlan(BaseModel):
-    enabled: bool = True
-    query: Optional[str] = None
-    queries: List[str] = Field(default_factory=list)
-    use_sources: List[AllowedSources] = Field(
-        default_factory=lambda: ["supabase_marketing", "supabase_beauty", "tavily"]
-    )
-    top_k: int = 5
-    scrape_k: int = 0
-
-class QAPlan(BaseModel):
-    choice: Choice
-    planning: PlanningNote
-    t2s: T2SPlan
-    web: WebPlan
 
 
 # -------------------- Prompt --------------------
@@ -191,12 +155,12 @@ def qa_plan_node(state: AgentState) -> AgentState:
     history = state.history or []
     question = state.user_message or ""
 
-    prompt = ChatPromptTemplate.from_messages(_build_messages(history, question))
+    messages = _build_messages(history, question)
     parser = PydanticOutputParser(pydantic_object=QAPlan)
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
 
     try:
-        plan: QAPlan = (prompt | llm | parser).invoke({})
+        plan: QAPlan = (llm | parser).invoke(messages)
         plan.t2s.top_rows = max(10, min(1000, plan.t2s.top_rows or 100))
         plan.web.top_k = max(1, min(10, plan.web.top_k or 5))
         plan.web.scrape_k = max(0, min(5, plan.web.scrape_k or 0))

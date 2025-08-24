@@ -63,9 +63,9 @@ def qa_build_answer_node(state: AgentState) -> AgentState:
     """
     입력 (있을 수 있는 키):
       - user_message: str
-      - qa_table: {rows, columns, row_count}
+      - qa_table: {{rows, columns, row_count}}
       - qa_chart: str (Plotly JSON)
-      - qa_snapshot: {notes: [..], sources: [...]}
+      - qa_snapshot: {{notes: [..], sources: [...]}}
 
     출력:
       state.response = 최종 답변 텍스트

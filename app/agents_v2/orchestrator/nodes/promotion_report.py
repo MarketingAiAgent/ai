@@ -5,46 +5,20 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import PromotionSlots
-from app.agents_v2.orchestrator.state import AgentState
+from app.agents_v2.orchestrator.state import AgentState, PromotionSlots, ReportNodeOutput, ReportHighlights
 
 logger = logging.getLogger(__name__)
 ScopeLiteral = Literal["브랜드", "제품"]
 
 
 # =========================
-# Pydantic outputs
-# =========================
-
-class PromotionReport(BaseModel):
-    title: str
-    summary: str
-    slots_recap: Dict[str, Optional[str]]  # audience/scope/target/period/KPI/concept
-    highlights: List[str] = Field(default_factory=list)  # SQL/WEB 근거 요약 bullets
-    plan: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="실행 계획(예: concept, key_channels, offers, audience_notes 등)"
-    )
-    kpis: List[str] = Field(default_factory=list)
-    risks: List[str] = Field(default_factory=list)
-    next_steps: List[str] = Field(default_factory=list)
-    markdown: str = Field(description="프론트에 바로 렌더 가능한 마크다운 본문")
-
-
-class ReportNodeOutput(BaseModel):
-    message: str  # 한 줄 알림/확인 질문
-    report: PromotionReport
-    expect_fields: List[str] = Field(default_factory=list)
-
-
-# =========================
-# Evidence collection helpers
+# Utilities
 # =========================
 
 _NAME_KEYS = ("name", "label", "target", "brand", "브랜드", "product", "제품", "타겟")
@@ -143,9 +117,9 @@ def _build_report_messages(
         '  "report": {\n'
         '    "title": "제목",\n'
         '    "summary": "요약",\n'
-        '    "slots_recap": {"audience": "...","scope": "...","target": "...","period": "...","KPI": "...","concept": "..."},\n'
+        '    "slots_recap": {{"audience": "...","scope": "...","target": "...","period": "...","KPI": "...","concept": "..."}},\n'
         '    "highlights": ["근거 bullet", "..."],\n'
-        '    "plan": {"concept": "...", "key_channels": ["..."], "offers": ["..."], "audience_notes": "...", "timeline": "..."},\n'
+        '    "plan": {{"concept": "...", "key_channels": ["..."], "offers": ["..."], "audience_notes": "...", "timeline": "..."}},\n'
         '    "kpis": ["제안 KPI 2~4개(입력 KPI가 있으면 우선 반영)"],\n'
         '    "risks": ["리스크 2~3개와 간단 대응"],\n'
         '    "next_steps": ["다음 단계 2~4개"],\n'
@@ -212,11 +186,10 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
     # LLM 호출
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
     messages = _build_report_messages(slots, slots.scope, insight_bullets)
-    prompt = ChatPromptTemplate.from_messages(messages)
     parser = PydanticOutputParser(pydantic_object=ReportNodeOutput)
 
     try:
-        out: ReportNodeOutput = (prompt | llm | parser).invoke({})
+        out: ReportNodeOutput = (llm | parser).invoke(messages)
 
         md = out.report.markdown.strip() if out.report and out.report.markdown else ""
         if not md:
@@ -283,7 +256,7 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
         ])
         return state.model_copy(update={
             "response": "프로모션 리포트 초안을 생성했습니다. 세부 조정이 필요하면 말씀해 주세요.",
-            "report": PromotionReport(
+            "report": ReportHighlights(
                 title=title,
                 summary="핵심 슬롯과 참고 근거를 바탕으로 구성한 초안입니다.",
                 slots_recap={

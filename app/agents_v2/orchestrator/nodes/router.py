@@ -16,8 +16,8 @@ def _build_messages(history: List[Dict[str, str]], current: str) -> List[Dict[st
             "당신은 한국어로 동작하는 라우팅 분류기입니다. "
             "입력으로 직전 대화 히스토리와 현재 질문을 받고, "
             "다음 중 하나만 JSON으로 반환하세요:\n"
-            '{ "intent": "Q&A" | "Promotion" | "Irrelevance" }\n\n'
-            "- 'Q&A': 지표/데이터/트렌드/지식 질의(예: CTR 알려줘, 트렌드 요약 등)\n"
+            '{ "intent": "QA" | "Promotion" | "Irrelevance" }\n\n'
+            "- 'QA': 지표/데이터/트렌드/지식 질의(예: CTR 알려줘, 트렌드 요약 등)\n"
             "- 'Promotion': 프로모션/캠페인/이벤트 기획 의도(예: 20대 대상 프로모션 하자, 브랜드/제품 기준 등)\n"
             "- 'Out-of-scope': 인사, 잡담, 시스템 명령 등 비관련 요청\n"
             "설명이나 여분 텍스트 없이 반드시 JSON 한 줄만 출력하세요."
@@ -51,7 +51,6 @@ class RouterOutput(BaseModel):
 def router_node(state: AgentState) -> AgentState:
     logger.info("===== 🤔 라우터 수립 노드 실행 =====")
     messages = _build_messages(state.history, state.user_message)
-    prompt = ChatPromptTemplate.from_messages(messages)
     parser = PydanticOutputParser(pydantic_object=RouterOutput)
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
@@ -61,7 +60,7 @@ def router_node(state: AgentState) -> AgentState:
     )
 
     try: 
-        result: RouterOutput = (prompt | llm | parser).invoke()
+        result: RouterOutput = (llm | parser).invoke(messages)
         logger.info(f"결과: {result.intent}")
         logger.info(f"===== 🤔 라우터 수립 노드 실행 완료 =====")
         return state.model_copy(update={"intent": result.intent})
