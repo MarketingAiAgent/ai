@@ -24,22 +24,22 @@ async def generate_chat_title(message: str) -> str:
 
 async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stream):
     
+    graph_data = None
+    plan_data = None
     full_response_content = []
+
     async for chunk_str in response_stream:
         yield chunk_str 
 
-        graph_data = None
-        plan_data = ""
-        
         if chunk_str.startswith('data: '):
             try:
                 data = json.loads(chunk_str[6:])
                 if data.get('type') == 'chunk' and data.get('content'):
                     full_response_content.append(data['content'])
                 if data.get('type') == "graph": 
-                    graph_data = data.get("graph")
+                    graph_data = data.get("content")
                 if data.get("type") == "plan": 
-                    plan_data = data.get("plan")
+                    plan_data = data.get("content")
             except (json.JSONDecodeError, KeyError):
                 continue 
 

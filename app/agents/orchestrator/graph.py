@@ -1,10 +1,11 @@
+# app/agents/orchestrator/graph.py
 from __future__ import annotations
 
 import json
 import textwrap
 import logging
 from typing import List, Optional, Dict, Any, Literal, TypedDict, Union
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import timedelta
 
 from pydantic import BaseModel, Field
@@ -25,6 +26,89 @@ from .tools import *
 from .helpers import *
 
 logger = logging.getLogger(__name__)
+
+# ===== Helper (length policy) =====
+def _compute_length_hint(tr: Dict[str, Any], option_candidates: Optional[Dict[str, Any]], t2s_table: Optional[Dict[str, Any]]) -> str:
+    """간단 휴리스틱: 표/옵션/외부근거 유무로 길이 추천"""
+    has_table = bool(t2s_table and t2s_table.get("rows"))
+    has_options = bool(option_candidates and option_candidates.get("candidates"))
+    has_evidence = any(
+        k in tr and tr.get(k)
+        for k in ("marketing_trend_search_0", "tavily_search_0", "scrape_webpages_0", "beauty_youtuber_trend_search_0")
+    )
+    score = int(has_table) + int(has_options) + int(has_evidence)
+    if score >= 2:
+        return "long"    # 13~20문장
+    if score == 1:
+        return "medium"  # 7~12문장
+    return "short"       # 4~6문장
+
+# ===== P1-3: Deterministic 옵션 렌더링 =====
+def _render_option_list_text(
+    option_candidates: Optional[Dict[str, Any]],
+    slots: Optional[PromotionSlots],
+    *,
+    max_items: int = 6,
+) -> str:
+    """
+    후보 JSON이 있으면 그걸 우선 사용하고,
+    없으면 slots.product_options(라벨 리스트)로 폴백합니다.
+    최종 형식(텍스트)은 LLM이 수정하지 않도록 프롬프트에서 '그대로 포함'하도록 지시합니다.
+    """
+    lines: List[str] = []
+    used = 0
+
+    # 1) 후보 JSON 우선
+    if option_candidates and isinstance(option_candidates.get("candidates"), list):
+        for c in option_candidates["candidates"]:
+            if used >= max_items:
+                break
+            label = str(c.get("label") or "").strip() or "선택지"
+            reasons = c.get("reasons") or []
+            # 2~4줄 근거 제한
+            reasons = [str(r).strip() for r in reasons if r]
+            if len(reasons) > 4:
+                reasons = reasons[:4]
+            # 핵심 메트릭을 괄호로 1줄 요약
+            metrics = c.get("metrics") or {}
+            mkeys = ["revenue","growth_pct","gm","conversion_rate","repeat_rate","aov","inventory_days","return_rate"]
+            mparts = []
+            for k in mkeys:
+                if k in metrics and metrics[k] not in (None, ""):
+                    mparts.append(f"{k}: {metrics[k]}")
+            metrics_line = f" ({'; '.join(mparts)})" if mparts else ""
+            used += 1
+            idx = used
+            lines.append(f"{idx}. {label}{metrics_line}")
+            for r in reasons[:4]:
+                lines.append(f"   - {r}")
+
+    # 2) 폴백: slots.product_options
+    if used == 0 and slots and slots.product_options:
+        for i, label in enumerate(slots.product_options, start=1):
+            if used >= max_items:
+                break
+            used += 1
+            lines.append(f"{i}. {label}")
+
+    # 3) 공통: 맨 끝에 '0. 기타(직접 입력)'
+    lines.append("0. 기타(직접 입력)")
+    return "\n".join(lines)
+
+# ===== P1-4: 툴 오류 요약 렌더러 =====
+def _render_tool_errors_text(tr: Dict[str, Any]) -> str:
+    msgs: List[str] = []
+    for key, val in (tr or {}).items():
+        if isinstance(val, dict) and val.get("error"):
+            tool = key.split("_")[0]
+            err = val.get("error")
+            if err == "timeout":
+                msgs.append(f"{tool} 도구가 제한 시간(12초)을 초과하여 생략되었습니다.")
+            else:
+                msgs.append(f"{tool} 도구 실행 중 오류가 발생해 생략했습니다.")
+    if not msgs:
+        return ""
+    return "참고: " + " ".join(msgs)
 
 # ===== Nodes =====
 def _merge_slots(state: OrchestratorState, updates: Dict[str, Any]) -> PromotionSlots:
@@ -85,15 +169,15 @@ def slot_extractor_node(state: OrchestratorState):
 def _planner_router(state: OrchestratorState) -> str:
     instr = state.get("instructions")
     if not instr:
-        return "tool_executor"
-        
+        return "response_generator"  # 기본 분기: 빈 툴 실행 방지
+
     resp = (instr.response_generator_instruction or "").strip()
     if resp.startswith("[PROMOTION]"):
         return "slot_extractor"
-        
+
     if instr.tool_calls and len(instr.tool_calls) > 0:
         return "tool_executor"
-        
+
     return "response_generator"
 
 def planner_node(state: OrchestratorState):
@@ -118,17 +202,17 @@ def planner_node(state: OrchestratorState):
     - If it is **out-of-scope guidance**, prefix with "[OUT_OF_SCOPE]".
     - Otherwise (one-off answer), no prefix.
 
-    ## Tools
-    - 사용자의 질문에 답하기 위해 필요한 모든 도구를 **tool_calls JSON 배열**에 담아 요청하세요.
-    - 필요하다면 **여러 개의 도구를 하나의 배열에 동시에 요청**할 수 있습니다.
-    - 각 도구 객체는 `{{"tool": "도구명", "args": {{"파라미터명": "값"}}}}` 형식을 따라야 합니다.
+    ## Tools (MINIMIZE)
+    - 먼저 질문으로 모호성을 해소하세요. **툴 호출은 필요한 경우에만** 최소 개수(가급적 1~2개)로 요청합니다.
+    - 경량→중량 순서로 분해하세요: `tavily_search`로 URL/개요를 얻은 뒤 **정말 필요할 때만** `scrape_webpages`를 일부(top N) URL에 적용합니다.
+    - 동시에 무거운 툴을 여러 개 호출하지 마세요. (가능하다면 순차 계획)
     - 사용 가능한 도구 목록과 형식:
       - DB 조회: `{{"tool": "t2s", "args": {{"instruction": "SQL로 변환할 자연어 질문"}}}}`
       - 웹 검색: `{{"tool": "tavily_search", "args": {{"query": "검색어", "max_results": 5}}}}`
       - 웹 스크래핑: `{{"tool": "scrape_webpages", "args": {{"urls": ["https://...", ...]}}}}`
       - 마케팅 트렌드: `{{"tool": "marketing_trend_search", "args": {{"question": "질문"}}}}`
       - 뷰티 트렌드: `{{"tool": "beauty_youtuber_trend_search", "args": {{"question": "질문"}}}}`
-    - 도구 사용이 필요 없으면 `tool_calls` 필드를 null로 두세요.
+    - 프로모션 플로우인 경우 **이번 턴에는 툴을 호출하지 않습니다.**
 
     ## Time normalization
     - Convert relative dates to ABSOLUTE ranges with Asia/Seoul timezone. Today is {today}.
@@ -144,7 +228,7 @@ def planner_node(state: OrchestratorState):
 
     ## Decision rules
     - Promotion flow: do NOT call tools this turn. Just set `response_generator_instruction` (with [PROMOTION]).
-    - One-off answers: set `tool_calls` as needed.
+    - One-off answers: set `tool_calls` as needed (MINIMIZED & DECOMPOSED).
     - Out-of-scope: both tools null, and provide short polite guidance with [OUT_OF_SCOPE].
     - Output must be concise, Korean polite style.
 
@@ -180,40 +264,27 @@ def action_state_node(state: OrchestratorState):
     return {"tool_results": {"action": decision}}
 
 def _action_router(state: OrchestratorState) -> str:
-    """
-    action_state 결과로 다음 노드 결정:
-    - brand/target을 묻거나, 특정 product를 물어야 하는 상황이면 options_generator로 분기
-    - 그 외 (objective/duration 질문, 최종 확인 등)는 response_generator로 분기
-    """
     tr = state.get("tool_results") or {}
     action = tr.get("action") or {}
     status = action.get("status")
     missing = action.get("missing_slots", [])
 
-    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
-    # 'ask_for_product' 상태일 때 options_generator를 호출하도록 명시
     if status == "ask_for_product":
         return "options_generator"
-    # ------------------------------------
-    
-    # 기존 로직: brand나 target을 물어야 할 때도 options_generator 호출
+
     if status == "ask_for_slots" and any(m in ("brand", "target") for m in missing):
         return "options_generator"
-        
+
     return "response_generator"
-    
+
 def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) -> str:
     end = datetime.now(ZoneInfo("Asia/Seoul")).date()
     start = end - timedelta(days=60)
-    
-    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
-    # 브랜드 필터링 조건을 담을 변수
+
     brand_filter_instruction = ""
-    # slots에 brand 정보가 있으면 필터링 지시문을 생성합니다.
     if slots and slots.brand:
         brand_filter_instruction = f" 또한, 결과는 반드시 '{slots.brand}' 브랜드의 제품만 포함해야 합니다."
-    # ------------------------------------
- 
+
     if target_type == "brand_target":
         return textwrap.dedent(f"""
         최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.{brand_filter_instruction}
@@ -307,16 +378,13 @@ def options_generator_node(state: OrchestratorState):
         "constraints": {"min_gm": 0.25, "max_return_rate": 0.1},
     }
 
-
     try:
         update_state(chat_id, {"product_options": labels})
     except Exception as e:
         logger.error("옵션 라벨 저장 실패: %s", e)
 
-
     merged_slots = _merge_slots(state, {"product_options": labels})
     logger.info("옵션 라벨 state 반영: %s", merged_slots.product_options)
-
 
     tr = state.get("tool_results") or {}
     tr["option_candidates"] = option_json
@@ -325,14 +393,10 @@ def options_generator_node(state: OrchestratorState):
 def _parse_knowledge_calls(instr: Optional[Union[str, List[Dict[str, Any]], Dict[str, Any]]]) -> List[Dict[str, Any]]:
     if instr is None:
         return []
-
     if isinstance(instr, dict):
         return [instr]
-
     if isinstance(instr, list):
-        # ensure list of dicts
         return [c for c in instr if isinstance(c, dict)]
-
     if isinstance(instr, str):
         try:
             data = json.loads(instr)
@@ -342,10 +406,8 @@ def _parse_knowledge_calls(instr: Optional[Union[str, List[Dict[str, Any]], Dict
                 return [c for c in data if isinstance(c, dict)]
             return []
         except Exception:
-
             return []
     return []
-
 
 def tool_executor_node(state: OrchestratorState):
     logger.info("--- 🔨 툴 실행 노드 실행 ---")
@@ -363,84 +425,79 @@ def tool_executor_node(state: OrchestratorState):
         "marketing_trend_search": lambda args: marketing_trend_search(args.get("question", "")),
         "beauty_youtuber_trend_search": lambda args: beauty_youtuber_trend_search(args.get("question", "")),
     }
-    
+
     tool_results = {}
 
-    with ThreadPoolExecutor(max_workers=len(tool_calls)) as executor:
+    MAX_WORKERS = 3
+    with ThreadPoolExecutor(max_workers=min(len(tool_calls), MAX_WORKERS)) as executor:
         future_to_call = {}
         for i, call in enumerate(tool_calls):
             tool_name = call.get("tool")
             tool_args = call.get("args", {})
-
             logger.info(f"🧩 {tool_name} 실행")
-            
             if tool_name in tool_map:
                 result_key = f"{tool_name}_{i}"
                 future = executor.submit(tool_map[tool_name], tool_args)
                 future_to_call[future] = result_key
             else:
                 logger.warning(f"알 수 없는 도구 '{tool_name}' 호출은 건너뜁니다.")
-        
+
         for future in future_to_call:
             result_key = future_to_call[future]
-
             try:
-                result = future.result()
+                result = future.result(timeout=12)
                 tool_results[result_key] = result
-
+            except TimeoutError:
+                logger.error(f"'{result_key}' 툴 실행 타임아웃")
+                tool_results[result_key] = {
+                    "error": "timeout",
+                    "message": "요청 시간이 초과되었습니다(12초).",
+                    "tool": result_key.split("_")[0],
+                }
             except Exception as e:
                 logger.error(f"'{result_key}' 툴 실행 중 오류 발생: {e}")
-                tool_results[result_key] = {"error": str(e)}
-
+                tool_results[result_key] = {
+                    "error": "runtime",
+                    "message": str(e),
+                    "tool": result_key.split("_")[0],
+                }
 
     existing_results = state.get("tool_results") or {}
     merged_results = {**existing_results, **tool_results}
-    
     return {"tool_results": merged_results}
 
 def _should_visualize_router(state: OrchestratorState) -> str:
     tool_results = state.get("tool_results", {})
-    # tool_results 안에 t2s로 시작하고 데이터가 있는 결과가 있는지 확인
     for key, value in tool_results.items():
         if key.startswith("t2s") and value and value.get("rows"):
             logger.info("T2S 결과가 있어 시각화를 시도합니다.")
             return "visualize"
-            
     logger.info("T2S 결과가 없어 시각화를 건너뜁니다.")
     return "skip_visualize"
 
 def visualizer_caller_node(state: OrchestratorState):
     logger.info("--- 📊 시각화 노드 실행 ---")
-    
-    # t2s 결과를 찾습니다. 여러 tool_results 중 t2s_0, t2s_1 등을 찾도록 수정
     t2s_result = None
     tool_results = state.get("tool_results", {})
     for key, value in tool_results.items():
         if key.startswith("t2s") and value and value.get("rows"):
             t2s_result = value
             break
-    
     if not t2s_result:
         logger.info("시각화할 데이터가 없어 건너뜁니다.")
         return {}
-
-    # Visualizer 그래프 실행
-    visualizer_app = build_visualize_graph(model="gemini-2.5-flash") # 모델명은 설정에 따라 변경
+    visualizer_app = build_visualize_graph(model="gemini-2.5-flash")
     viz_state = VisualizeState(
         user_question=state.get("user_message"),
         instruction="사용자의 질문과 아래 데이터를 바탕으로 최적의 그래프를 생성하고 설명해주세요.",
         json_data=json.dumps(t2s_result, ensure_ascii=False)
     )
-    
     viz_response = visualizer_app.invoke(viz_state)
-
-    # 시각화 결과를 tool_results에 추가
     if viz_response:
         tool_results["visualization"] = {
             "json_graph": viz_response.get("json_graph"),
             "explanation": viz_response.get("output")
         }
-        
     return {"tool_results": tool_results}
 
 def response_generator_node(state: OrchestratorState):
@@ -454,6 +511,7 @@ def response_generator_node(state: OrchestratorState):
         else "사용자 요청에 맞춰 정중하고 간결하게 답변해 주세요."
     )
 
+    # 수집
     t2s_table = None
     web_search = None
     scraped_pages = None
@@ -462,11 +520,11 @@ def response_generator_node(state: OrchestratorState):
     for key, value in tr.items():
         if key.startswith("t2s") and isinstance(value, dict) and "rows" in value:
             t2s_table = value
-        elif key.startswith("web_search"): 
+        elif key.startswith("tavily_search"):
             web_search = value
-        elif key.startswith("scraped_pages"):
+        elif key.startswith("scrape_webpages"):
             scraped_pages = value
-        elif key.startswith("marketing_trend_results"):
+        elif key.startswith("marketing_trend_search"):
             marketing_trend_results = value
         elif key.startswith("beauty_youtuber_trend_search"):
             youtuber_trend_results = value
@@ -475,29 +533,31 @@ def response_generator_node(state: OrchestratorState):
     knowledge_snippet = tr.get("knowledge") if isinstance(tr.get("knowledge"), str) else None
     option_candidates = tr.get("option_candidates") if isinstance(tr.get("option_candidates"), dict) else None
 
+    # 선택지 텍스트/오류 요약 렌더링
+    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+    option_list_text = _render_option_list_text(option_candidates, slots)
+    tool_errors_text = _render_tool_errors_text(tr)
+
+    # 길이 힌트
+    length_hint = _compute_length_hint(tr, option_candidates, t2s_table)
+
+    # 출력 스켈레톤 + option_list_text/오류 텍스트 포함
     prompt_tmpl = textwrap.dedent("""
+    # 길이 규칙(필수)
+    이번 답변은 반드시 **{length_hint} 길이**로 작성해 주세요.
+    - short=4~6문장, medium=7~12문장, long=13~20문장 기준입니다.
+
     당신은 마케팅 오케스트레이터의 최종 응답 생성기입니다.
     아래 입력만을 근거로 **한국어 존댓말**로 한 번에 완성된 답변을 작성해 주세요.
     내부 도구명이나 시스템 세부 구현은 언급하지 않습니다.
 
-    [입력 설명]
-    - instructions_text: 이번 턴의 톤/방향.
-    - action_decision: 프로모션 의사결정(JSON).
-    - option_candidates: 유저에게 제안할 후보 목록(JSON).
-    - t2s_table: DB 질의 결과(JSON). 있으면 상위 10행만 표로 미리보기.
-    - knowledge_snippet: 간단 참고(선택).
-    - web_search: 웹 검색 결과(JSON: results[title,url,content]).
-    - scraped_pages: 웹 페이지 본문 스크래핑 결과(JSON: documents[source,content]).
-    - marketing_trend_results: Supabase 마케팅 트렌드 결과(JSON).
-    - youtuber_trend_results: Supabase 뷰티 유튜버 트렌드 결과(JSON).
-
-    [작성 지침]
-    1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (brand_target | category_target)")
-    2) 위 1번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
-    3) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 모든 수치는 어떤 수치인지 구체적인 언급을 해주세요. 마지막에 '기타(직접 입력)'도 추가합니다.    
-    4) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
-    5) t2s_table이 있으면 상위 10행 미리보기 표를 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
-    6) 전체적으로 구조화된 형식을 유지하세요.
+    [작성 우선순위]
+    1) `action_decision.ask_prompts`가 비어있지 않다면, 가장 먼저 해당 질문을 공손하게 한 문장으로 제시하세요.
+    2) 그 다음 줄에 **아래 제공된 선택지 텍스트(option_list_text)를 변형 없이 그대로** 출력하세요.
+    3) 근거/설명은 2~4줄로 간결하게 쓰되, 수치가 있으면 구체적으로 표기하세요.
+    4) t2s_table이 있을 때만 [TABLE_START]~[TABLE_END] 사이에 미리보기 표(상위 10행)를 포함하세요. 표가 없으면 이 토큰을 절대 사용하지 마세요.
+    5) 맨 마지막 줄에 다음 단계 1문장을 추가하세요. (예: "선택 번호를 알려주시면 바로 다음 단계로 진행하겠습니다.")
+    6) `tool_errors_text`가 비어있지 않다면, **맨 마지막에서 한 줄**로만 간단히 첨부하세요. (예: "참고: ...")
 
     [입력 데이터]
     - instructions_text:
@@ -506,8 +566,8 @@ def response_generator_node(state: OrchestratorState):
     - action_decision (JSON):
     {action_decision_json}
 
-    - option_candidates (JSON):
-    {option_candidates_json}
+    - option_list_text (렌더 완료, 그대로 출력):
+    {option_list_text}
 
     - t2s_table (JSON):
     {t2s_table_json}
@@ -524,6 +584,9 @@ def response_generator_node(state: OrchestratorState):
     - youtuber_trend_results (JSON):
     {youtuber_trend_results_json}
 
+    - tool_errors_text:
+    {tool_errors_text}
+
     - knowledge_snippet:
     {knowledge_snippet}
     """)
@@ -531,18 +594,24 @@ def response_generator_node(state: OrchestratorState):
     to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
 
     prompt = ChatPromptTemplate.from_template(prompt_tmpl)
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
-    # llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", temperature=0, api_key=settings.ANTHROPIC_API_KEY)
-    
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        api_key=settings.GOOGLE_API_KEY,
+        max_output_tokens=600  # 경고 제거: 최상위 인자로 명시
+    )
+
     final_text = (prompt | llm).invoke({
+        "length_hint": length_hint,
         "instructions_text": instructions_text,
         "action_decision_json": to_json(action_decision),
-        "option_candidates_json": to_json(option_candidates),
+        "option_list_text": option_list_text,
         "t2s_table_json": to_json(t2s_table),
         "web_search_json": to_json(web_search),
         "scraped_pages_json": to_json(scraped_pages),
         "marketing_trend_results_json": to_json(marketing_trend_results),
         "youtuber_trend_results_json": to_json(youtuber_trend_results),
+        "tool_errors_text": tool_errors_text or "",
         "knowledge_snippet": knowledge_snippet or "",
     })
 
@@ -551,23 +620,19 @@ def response_generator_node(state: OrchestratorState):
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})
     history.append({"role": "assistant", "content": final_response})
-    
-    # logger.info(f"{state}")
+
     return {"history": history, "user_message": "", "output": final_response}
 
 # ===== Graph =====
 workflow = StateGraph(OrchestratorState)
-
 workflow.add_node("planner", planner_node)
 workflow.add_node("slot_extractor", slot_extractor_node)
 workflow.add_node("action_state", action_state_node)
 workflow.add_node("options_generator", options_generator_node)
 workflow.add_node("tool_executor", tool_executor_node)
-workflow.add_node("visualizer", visualizer_caller_node) 
+workflow.add_node("visualizer", visualizer_caller_node)
 workflow.add_node("response_generator", response_generator_node)
-
 workflow.set_entry_point("planner")
-
 workflow.add_conditional_edges(
     "planner",
     _planner_router,
@@ -577,7 +642,6 @@ workflow.add_conditional_edges(
         "response_generator": "response_generator",
     },
 )
-
 workflow.add_edge("slot_extractor", "action_state")
 workflow.add_conditional_edges(
     "action_state",
@@ -588,12 +652,11 @@ workflow.add_conditional_edges(
     },
 )
 workflow.add_edge("options_generator", "response_generator")
-
 workflow.add_conditional_edges(
     "tool_executor",
     _should_visualize_router,
     {
-        "visualize": "response_generator",
+        "visualize": "visualizer",
         "skip_visualize": "response_generator"
     }
 )

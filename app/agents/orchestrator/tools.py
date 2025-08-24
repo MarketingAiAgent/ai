@@ -1,5 +1,9 @@
-import logging 
-import json 
+# app/agents/orchestrator/tools.py
+
+import logging
+import json
+from typing import List, Dict, Any, Optional  # ✅ 추가
+import re  # ✅ 추가
 
 from langchain_tavily import TavilySearch
 from langchain_community.document_loaders import WebBaseLoader
@@ -7,7 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.database.supabase import supabase_client, embeddings
-from app.core.config import settings 
+from app.core.config import settings
 
 from app.agents.text_to_sql.__init__ import call_sql_generator
 from .state import *
@@ -17,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 _tavily = TavilySearch(max_results=5)
 
-def run_t2s_agent_with_instruction(state: OrchestratorState, instruction: str): 
+def run_t2s_agent_with_instruction(state: OrchestratorState, instruction: str):
     result = call_sql_generator(
-        message=instruction, 
-        conn_str=state["conn_str"], 
+        message=instruction,
+        conn_str=state["conn_str"],
         schema_info=state["schema_info"]
     )
     table = result.get("data_json")
@@ -38,12 +42,11 @@ def run_tavily_search(query: str, max_results: int = 5) -> Dict[str, Any]:
     """
     try:
         tool = TavilySearch(max_results=max_results, ) if max_results != 5 else _tavily
-        out = tool.invoke(query) 
+        out = tool.invoke(query)
         if isinstance(out, str):
             try:
                 parsed_out = json.loads(out)
                 out = parsed_out
-                
             except json.JSONDecodeError:
                 logger.error("Tavily가 일반 에러 문자열을 반환했습니다: %s", out)
                 return {"results": [], "error": out}
@@ -57,7 +60,8 @@ def run_tavily_search(query: str, max_results: int = 5) -> Dict[str, Any]:
             })
         return {"results": results}
     except Exception as e:
-        logger.error("Tavily 검색 실패: %s", e, "출력:", out)
+        # ✅ 안전 로깅: 정의되지 않았을 수 있는 out를 참조하지 않도록 수정
+        logger.error("Tavily 검색 실패: %s", e)
         return {"results": [], "error": str(e)}
 
 def scrape_webpages(urls: List[str]) -> Dict[str, Any]:
@@ -132,7 +136,7 @@ def beauty_youtuber_trend_search(question: str, summarize=True) -> Dict[str, Any
                 "text": it.get("text", ""),
                 "subtitle": it.get("subtitle", ""),
             })
-        if not summarize: 
+        if not summarize:
             return {'results': out}
 
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
@@ -150,7 +154,7 @@ Raw text from the tool:
 Based on the raw text, please extract and summarize only the essential information that answers the user's question.
 Present the summary in a few concise bullet points in Korean.
 If the raw text contains no relevant information to answer the question, just return "관련 정보를 찾을 수 없습니다."
-""" 
+"""
         prompt = ChatPromptTemplate.from_template(SUMMARIZER_PROMPT)
 
         summary_chain = prompt | llm
@@ -158,9 +162,9 @@ If the raw text contains no relevant information to answer the question, just re
                 "question": question,
                 "raw_text": out
             }).content
-        
+
         logger.info(f"뷰티 유튜버 확인 완료: {summary}")
-            
+
         return {"results": summary}
     except Exception as e:
         logger.error("Supabase beauty youtuber search 실패: %s", e)

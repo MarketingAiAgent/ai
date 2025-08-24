@@ -5,10 +5,119 @@ import json
 import re 
 import math
 
-def summarize_history(history: List[Dict[str, str]], limit_chars: int = 800) -> str:
-    """최근 히스토리를 간단 요약으로 제공 (LLM 컨텍스트용)"""
-    text = " ".join(h.get("content", "") for h in history[-6:])
-    return text[:limit_chars]
+_TABLE_BLOCK_RE = re.compile(r"\[TABLE_START\].*?\[TABLE_END\]", re.DOTALL)
+
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+    # 표 구간 제거 (프론트 약속 유지용 토큰은 그대로 두되, 본문 요약에선 제거)
+    text = _TABLE_BLOCK_RE.sub("", text)
+    # 공백 정리
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+def _truncate(s: str, max_len: int) -> str:
+    if len(s) <= max_len:
+        return s
+    # 문장 경계 우선: 마침표/물음표/감탄 부호 근처에서 자르기
+    cut = s[:max_len]
+    m = re.search(r"[\.?!]\s*\S*$", cut)
+    if m:
+        return cut[:m.start()+1].strip()
+    return cut.rstrip() + "…"
+
+def summarize_history(history: List[Dict[str, Any]], max_chars: int = 600) -> str:
+    """
+    최근 맥락을 규칙적으로 요약해 플래너에 전달합니다.
+    - 최근 사용자 요청 1개 + 직전 요청 1개
+    - 최근 어시스턴트 질문 1문장
+    - 최근 제안 선택지(번호/불릿) 최대 5개
+    - [TABLE_START]~[TABLE_END] 본문 제거
+    """
+    if not history:
+        return ""
+
+    # 1) 최신 순으로 스캔
+    user_msgs: List[str] = []
+    last_assistant_question: str = ""
+    last_options: List[str] = []
+
+    # 가장 최근 "어시스턴트" 메시지 하나를 먼저 잡아 옵션/질문 탐지에 사용
+    last_assistant_msg = None
+    for m in reversed(history):
+        if m.get("role") == "assistant" and m.get("content"):
+            last_assistant_msg = _clean_text(str(m["content"]))
+            break
+
+    if last_assistant_msg:
+        # 질문 문장(물음표 또는 한국어 의문 종결) 한 줄 추출
+        lines = [ln.strip() for ln in last_assistant_msg.splitlines() if ln.strip()]
+        # 의문 조건: '?' 포함 또는 '까요/나요/죠/죠?' 등의 패턴
+        q_pat = re.compile(r"(?:\?|겠[습니까]|까[요]?|나요|죠\?|죠$|어떤지|선택해 주|정해 주|골라 주)")
+        for ln in lines:
+            if q_pat.search(ln):
+                last_assistant_question = ln
+                break
+
+        # 번호/불릿 선택지 추출 (1. / - / • / * 로 시작)
+        opt_pat = re.compile(r"^(?:\d+\.\s+|[-•*]\s+)(.+)$")
+        for ln in lines:
+            m = opt_pat.match(ln)
+            if m:
+                cand = m.group(1).strip()
+                # 너무 긴 라인은 자르기
+                last_options.append(_truncate(cand, 80))
+                if len(last_options) >= 5:
+                    break
+
+    # 2) 사용자 최근/직전 메시지
+    for m in reversed(history):
+        if m.get("role") == "user" and m.get("content"):
+            user_msgs.append(_clean_text(str(m["content"])))
+            if len(user_msgs) >= 2:
+                break
+
+    last_user = user_msgs[0] if len(user_msgs) >= 1 else ""
+    prev_user = user_msgs[1] if len(user_msgs) >= 2 else ""
+
+    # 3) 조립
+    parts: List[str] = []
+    if last_user:
+        parts.append(f"최근 사용자 요청: { _truncate(last_user, 160) }")
+    if prev_user:
+        parts.append(f"이전 사용자 요청: { _truncate(prev_user, 120) }")
+    if last_assistant_question:
+        parts.append(f"최근에 제가 드린 질문: { _truncate(last_assistant_question, 120) }")
+    if last_options:
+        parts.append("제안했던 선택지: " + "; ".join(_truncate(o, 60) for o in last_options))
+
+    summary = "\n".join(parts).strip()
+
+    # 4) 길이 제한 보정
+    if len(summary) <= max_chars:
+        return summary
+
+    # 너무 길면 각 파트별로 조금씩 더 잘라서 맞추기
+    # (우선순위: 최근 사용자 > 최근 질문 > 이전 사용자 > 선택지)
+    order = [0, 2, 1, 3]
+    cuts = [160, 120, 120, 240]  # 초기 컷 기준
+    while len(summary) > max_chars:
+        changed = False
+        for idx in order:
+            if idx < len(parts) and len(parts[idx]) > 40:
+                # 숫자만 조금씩 줄이기
+                cuts[idx if idx < 3 else 3] = max(30, int(cuts[idx if idx < 3 else 3] * 0.9))
+                # 다시 조립
+                # 파트 재계산을 위해 원문을 다시 만들어야 하지만, 간단화: 전체를 더 강하게 truncate
+                summary = _truncate(summary, max_chars)
+                changed = True
+                if len(summary) <= max_chars:
+                    break
+        if not changed:
+            break
+
+    return summary
 
 def today_kr() -> str:
     """Asia/Seoul 기준 오늘 날짜 yyyy-mm-dd"""

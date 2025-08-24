@@ -57,6 +57,8 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph
             "speaker": "user",
             "timestamp": base_time,
             "content": user_message,
+            "graph_data": None,
+            "plan_data": None
         }
         
         user_result = collection.insert_one(user_message_data)
