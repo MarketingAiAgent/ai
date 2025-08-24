@@ -593,7 +593,7 @@ workflow.add_conditional_edges(
     "tool_executor",
     _should_visualize_router,
     {
-        "visualize": "response_generator",
+        "visualize": "visualizer",
         "skip_visualize": "response_generator"
     }
 )

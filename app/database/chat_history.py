@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from .connection import db  
 from pymongo.results import InsertManyResult, UpdateResult, InsertOneResult, DeleteResult
 from pymongo import DESCENDING
+from typing import Optional
 import logging 
 import uuid
 
@@ -41,12 +42,14 @@ def crete_chat(user_id: str, title:str):
         logger.error(f"❌ An error occurred while creating a chat for user '{user_id}': {e}")
         return None
         
-def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph_data: dict, plan_data: str):
+def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph_data, plan_data: Optional[str]):
     if db is None:
         logger.error("DB에 연결되지 않아 메시지를 저장할 수 없습니다.")
         return None
 
     try:
+        print("graph_data: ", graph_data)
+        
         collection = db.messages
         base_time = datetime.now(ZoneInfo("Asia/Seoul"))
         
@@ -57,6 +60,8 @@ def save_chat_message(chat_id: str, user_message: str, agent_message: str, graph
             "speaker": "user",
             "timestamp": base_time,
             "content": user_message,
+            "graph_data": None,
+            "plan_data": None
         }
         
         user_result = collection.insert_one(user_message_data)
