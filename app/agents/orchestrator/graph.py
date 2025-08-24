@@ -413,7 +413,6 @@ def tool_executor_node(state: OrchestratorState):
     logger.info("--- 🔨 툴 실행 노드 실행 ---")
     instructions = state.get("instructions")
     tool_calls = instructions.tool_calls if instructions and instructions.tool_calls else []
-
     if not tool_calls:
         logger.info("실행할 툴이 없습니다.")
         return {"tool_results": None}
@@ -427,44 +426,33 @@ def tool_executor_node(state: OrchestratorState):
     }
 
     tool_results = {}
-
     MAX_WORKERS = 3
+
     with ThreadPoolExecutor(max_workers=min(len(tool_calls), MAX_WORKERS)) as executor:
-        future_to_call = {}
+        future_to_key = {}
         for i, call in enumerate(tool_calls):
-            tool_name = call.get("tool")
-            tool_args = call.get("args", {})
-            logger.info(f"🧩 {tool_name} 실행")
-            if tool_name in tool_map:
-                result_key = f"{tool_name}_{i}"
-                future = executor.submit(tool_map[tool_name], tool_args)
-                future_to_call[future] = result_key
+            name = call.get("tool")
+            args = call.get("args", {})
+            logger.info(f"🧩 {name} 실행")
+            if name in tool_map:
+                key = f"{name}_{i}"
+                future_to_key[executor.submit(tool_map[name], args)] = key
             else:
-                logger.warning(f"알 수 없는 도구 '{tool_name}' 호출은 건너뜁니다.")
+                logger.warning(f"알 수 없는 도구 '{name}' 호출은 건너뜁니다.")
 
-        for future in future_to_call:
-            result_key = future_to_call[future]
+        for fut in future_to_key:
+            key = future_to_key[fut]
             try:
-                result = future.result(timeout=12)
-                tool_results[result_key] = result
+                tool_results[key] = fut.result(timeout=12)
             except TimeoutError:
-                logger.error(f"'{result_key}' 툴 실행 타임아웃")
-                tool_results[result_key] = {
-                    "error": "timeout",
-                    "message": "요청 시간이 초과되었습니다(12초).",
-                    "tool": result_key.split("_")[0],
-                }
+                logger.error(f"'{key}' 툴 실행 타임아웃")
+                tool_results[key] = {"error": "timeout", "message": "요청 시간이 초과되었습니다(12초).", "tool": key.split("_")[0]}
             except Exception as e:
-                logger.error(f"'{result_key}' 툴 실행 중 오류 발생: {e}")
-                tool_results[result_key] = {
-                    "error": "runtime",
-                    "message": str(e),
-                    "tool": result_key.split("_")[0],
-                }
+                logger.error(f"'{key}' 툴 실행 중 오류: {e}")
+                tool_results[key] = {"error": "runtime", "message": str(e), "tool": key.split("_")[0]}
 
-    existing_results = state.get("tool_results") or {}
-    merged_results = {**existing_results, **tool_results}
-    return {"tool_results": merged_results}
+    existing = state.get("tool_results") or {}
+    return {"tool_results": {**existing, **tool_results}}
 
 def _should_visualize_router(state: OrchestratorState) -> str:
     tool_results = state.get("tool_results", {})
