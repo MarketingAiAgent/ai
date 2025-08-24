@@ -23,23 +23,17 @@ def _build_messages(history: List[Dict[str, str]], current: str) -> List[Dict[st
             "설명이나 여분 텍스트 없이 반드시 JSON 한 줄만 출력하세요."
         )
 
-        fewshot = [
-            {
-                "role": "user",
-                "content": json.dumps({
-                    "history": ["지난달 CRM 성과 어땠지?"],
-                    "current": "CTR이랑 전환율 알려줘"
-                }, ensure_ascii=False)
-            },
-            {"role": "assistant", "content": json.dumps({"intent": "Q&A"}, ensure_ascii=False)},
-            {
-                "role": "user",
-                "content": json.dumps({
-                    "history": ["봄 시즌 캠페인 준비할까?"],
-                    "current": "20대 대상 프로모션 해볼래!"
-                }, ensure_ascii=False)
-            },
-            {"role": "assistant", "content": json.dumps({"intent": "Promotion"}, ensure_ascii=False)},
+        fewshot = ['''
+history: [{{"speaker": "user", "content": "20대 대상 프로모션 해볼래!"}}, {{"speaker": "ai", "content": "좋습니다. **브랜드 기준**과 **제품 기준** 중 어느 쪽으로 진행하시겠습니까?"}}]
+user_message: "브랜드로 진행해줘" 
+output: {{"intent": "Promotion"}}
+''',
+'''
+history: []
+user_message: "지난달 CRM 성과 어땠지?"
+output: {{"intent": "QA"}}
+'''
+
         ]
 
         user = {
