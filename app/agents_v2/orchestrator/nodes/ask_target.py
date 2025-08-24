@@ -13,6 +13,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
 from app.agents_v2.orchestrator.state    import PromotionSlots
+from app.agents_v2.orchestrator.state    import AgentState
 
 logger = logging.getLogger(__name__)
 ScopeLiteral = Literal["브랜드", "제품"]
@@ -209,50 +210,39 @@ def _format_message_with_options(
 
 
 # ===== 노드 본체 =====
-def build_options_and_question_node(state: Dict) -> Dict:
+def build_options_and_question_node(state: AgentState) -> AgentState:
     """
     입력 state:
-      {
-        "slots": PromotionSlots(dict),
-        "sql_rows": List[dict],   # 실행기 결과(표의 각 행). 첫 컬럼은 name이길 권장
-        "web_rows": List[dict],   # 실행기 결과(name/signal/source)
-        "top_k": int (선택, 기본 3)
-      }
+      - promotion_slots: PromotionSlots
+      - sql_rows: List[dict]   # 실행기 결과(표의 각 행). 첫 컬럼은 name이길 권장
+      - web_rows: List[dict]   # 실행기 결과(name/signal/source)
+      - top_k: int (선택, 기본 3)
     출력:
-      {
-        "message": str,                        # 질문 + 옵션을 포함한 완성 메시지
-        "options": List[{label,reason,concept_suggestion?,id}],
-        "expect_fields": ["target"]
-      }
+      - response: str          # 질문 + 옵션을 포함한 완성 메시지
+      - options: List[OptionCandidate]
+      - expect_fields: List[str]
     """
     logger.info("===== 🚀 타겟 후보 추천 노드 실행 =====")
-    slots_dict: Dict = state.get("slots") or {}
-    sql_rows: List[Dict[str, Any]] = state.get("sql_rows") or []
-    web_rows: List[Dict[str, Any]] = state.get("web_rows") or []
-    top_k: int = int(state.get("top_k") or 3)
-
-    # 슬롯 검증
-    try:
-        slots = PromotionSlots.model_validate(slots_dict)
-    except ValidationError:
-        slots = PromotionSlots()
+    
+    slots = state.promotion_slots
+    sql_rows = state.sql_rows or []
+    web_rows = state.web_rows or []
+    top_k = 3  # 기본값
 
     # 전제: scope/period가 있어야 옵션을 물을 타이밍
-    if not slots.scope or not slots.period:
-        return {
-            "message": "스코프(브랜드/제품)와 기간을 먼저 알려주시면 타겟 후보를 추천드리겠습니다.",
-            "options": [],
+    if not slots or not slots.scope or not slots.period:
+        return state.model_copy(update={
+            "response": "스코프(브랜드/제품)와 기간을 먼저 알려주시면 타겟 후보를 추천드리겠습니다.",
             "expect_fields": [],
-        }
+        })
 
     # 증거 병합
     evidences = _merge_evidences(sql_rows, web_rows, top_k=top_k)
     if not evidences:
-        return {
-            "message": "현재 추천할 타겟 후보를 찾지 못했습니다. 직접 브랜드/제품명을 입력해 주시겠어요?",
-            "options": [],
+        return state.model_copy(update={
+            "response": "현재 추천할 타겟 후보를 찾지 못했습니다. 직접 브랜드/제품명을 입력해 주시겠어요?",
             "expect_fields": ["target"],
-        }
+        })
 
     # LLM 호출(질문/옵션 생성)
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
@@ -269,11 +259,11 @@ def build_options_and_question_node(state: Dict) -> Dict:
         # 메시지 최종 구성(헤더 + 번호 매긴 옵션 + 선택 예시)
         final_message = _format_message_with_options(out.message, slots.scope, slots.audience, options)
 
-        return {
-            "message": final_message,
-            "options": [o.model_dump() for o in options],
+        return state.model_copy(update={
+            "response": final_message,
+            "options": options,
             "expect_fields": ["target"],
-        }
+        })
     except Exception:
         logger.exception("[build_options_and_question_node] LLM 실패 → 폴백 메시지 사용")
         # 폴백: evidences로 간단 옵션 구성
@@ -286,8 +276,8 @@ def build_options_and_question_node(state: Dict) -> Dict:
         header = f"{slots.scope} 기준 추천입니다."
         final_message = _format_message_with_options(header, slots.scope, slots.audience, opts)
 
-        return {
-            "message": final_message,
-            "options": [o.model_dump() for o in opts],
+        return state.model_copy(update={
+            "response": final_message,
+            "options": opts,
             "expect_fields": ["target"],
-        }
+        })

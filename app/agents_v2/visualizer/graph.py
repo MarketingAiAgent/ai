@@ -134,26 +134,17 @@ def node_visualize(st: VisualizeState, llm) -> VisualizeState:
         st.error = f"시각화 코드 실행 오류: {e}"
         return st
 
+    # BaseModel 속성으로 직접 접근
     fig = exec_env.get("fig")
     if fig is None:
         for v in exec_env.values():
             if isinstance(v, go.Figure):
-                fig = v; break
+                fig = v
+                break
     if fig is None:
         st.error = "Plotly Figure 를 찾지 못했습니다."
         return st
 
-    st.json_graph = fig.to_json()
-
-    fig = exec_env.get("fig")
-    if fig is None:
-        for v in exec_env.values():
-            if isinstance(v, go.Figure):
-                fig = v; break
-    if fig is None:
-        st.error = "Plotly Figure 를 찾지 못했습니다."
-        return st
-    
     st.json_graph = fig.to_json()
     st.error = ""
     return st

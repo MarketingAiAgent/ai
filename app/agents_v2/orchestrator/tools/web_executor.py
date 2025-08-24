@@ -103,57 +103,51 @@ def beauty_youtuber_trend_search(question: str, summarize: bool = True) -> Dict[
 
 # ----- executors (플래너 지시사항만 실행) -----
 
-def execute_web_from_plan(web_plan: Dict[str, Any]) -> List[Dict[str, str]]:
+def execute_web_from_plan(web_plan) -> List[Dict[str, str]]:
     """
-    web_plan:
-      {
-        "enabled": true,
-        "top_k": 3,
-        "query": "...",              # or "queries": [...]
-        "use_sources": ["supabase_marketing","supabase_beauty","tavily"],
-        "scrape_k": 0|N
-      }
+    web_plan: WebPlan BaseModel
     반환: [{"name": str, "signal": str, "source": str}]
     """
-    if not web_plan or not web_plan.get("enabled"):
+    if not web_plan or not web_plan.enabled:
         return []
 
-    q = web_plan.get("query") or (web_plan.get("queries") or [None])[0]
+    q = web_plan.query or (web_plan.queries[0] if web_plan.queries else None)
     if not q:
         return []
-    use_sources = web_plan.get("use_sources") or ["supabase_marketing", "supabase_beauty", "tavily"]
-    top_k = int(web_plan.get("top_k") or 3)
-    scrape_k = int(web_plan.get("scrape_k") or 0)
+    
+    use_sources = web_plan.use_sources or ["supabase_marketing", "supabase_beauty", "tavily"]
+    top_k = web_plan.top_k or 3
+    scrape_k = web_plan.scrape_k or 0
 
     docs: List[Dict[str, str]] = []
 
     if "supabase_marketing" in use_sources:
         mk = marketing_trend_search(q)
-        for r in (mk.get("results") or []):
-            docs.append({"title": r.get("title") or "", "url": "", "content": (r.get("chunk_text") or r.get("text") or "")})
+        for r in (mk.get("results", [])):
+            docs.append({"title": r.get("title", ""), "url": "", "content": (r.get("chunk_text") or r.get("text") or "")})
 
     if "supabase_beauty" in use_sources:
         yt = beauty_youtuber_trend_search(q, summarize=False)
-        for r in (yt.get("results") or []):
-            docs.append({"title": r.get("title") or "", "url": "", "content": (r.get("chunk_text") or r.get("text") or "")})
+        for r in (yt.get("results", [])):
+            docs.append({"title": r.get("title", ""), "url": "", "content": (r.get("chunk_text") or r.get("text") or "")})
 
     if "tavily" in use_sources:
         web = run_tavily_search(q, max_results=max(5, top_k * 2))
-        for r in (web.get("results") or []):
-            docs.append({"title": r.get("title") or "", "url": r.get("url") or "", "content": r.get("content") or ""})
+        for r in (web.get("results", [])):
+            docs.append({"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")})
         if scrape_k > 0:
             urls = [d["url"] for d in docs if d.get("url")]
             if urls:
                 scraped = scrape_webpages(urls[:scrape_k])
-                for d in (scraped.get("documents") or []):
-                    docs.append({"title": d.get("source") or "", "url": "", "content": d.get("content") or ""})
+                for d in (scraped.get("documents", [])):
+                    docs.append({"title": d.get("source", ""), "url": "", "content": d.get("content", "")})
 
     # 최소 정규화만 수행
     out: List[Dict[str, str]] = []
     for d in docs:
-        title = (d.get("title") or "").strip()
-        content = (d.get("content") or "").strip()
-        source = (d.get("url") or "").strip()
+        title = (d.get("title", "")).strip()
+        content = (d.get("content", "")).strip()
+        source = (d.get("url", "")).strip()
         name = title or (content[:40] + "…") if content else "untitled"
         signal = content[:180] + ("…" if len(content) > 180 else "")
         out.append({"name": name, "signal": signal, "source": source})

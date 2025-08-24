@@ -62,7 +62,7 @@ class SlotExtractorOutput(BaseModel):
     concept: Optional[str] = None
 
 # ===== Node =====
-def slot_extractor_node(state: AgentState):
+def slot_extractor_node(state: AgentState) -> AgentState:
     logger.info("===== 🧩 슬롯 추출 노드 실행 =====")
     messages = _build_messages(state.history, state.user_message)
     prompt = ChatPromptTemplate.from_messages(messages)
@@ -77,9 +77,14 @@ def slot_extractor_node(state: AgentState):
         result: SlotExtractorOutput = (prompt | llm | parser).invoke()
         logger.info(f"결과: {result}")
         logger.info(f"===== ❓ 슬롯 추출 노드 실행 완료 =====")
-        promotion_slots = state.promotion_slots.merge_missing(result.model_dump())
-        return {"promotion_slots": promotion_slots}
+        
+        if state.promotion_slots:
+            promotion_slots = state.promotion_slots.merge_missing(result)
+        else:
+            promotion_slots = PromotionSlots.model_validate(result.model_dump())
+        
+        return state.model_copy(update={"promotion_slots": promotion_slots})
     except Exception as e:
         logger.error(f"===== ❓ 슬롯 추출 노드 실행 중 오류 발생 =====")
         logger.error(f"오류 내용: {e}")
-        return {"promotion_slots": None}
+        return state.model_copy(update={"promotion_slots": None})

@@ -43,11 +43,18 @@ def visualize_and_explain(
     # 그래프 실행 (네가 만든 langgraph: visualize → explain)
     out = app.invoke(st)
 
-    json_graph = getattr(out, "json_graph", None) or out.get("json_graph") if isinstance(out, dict) else None
+    # BaseModel 또는 Dict 모두 처리
+    if hasattr(out, "json_graph"):
+        json_graph = out.json_graph
+        explanation = getattr(out, "explanation", "")
+    elif isinstance(out, dict):
+        json_graph = out.get("json_graph")
+        explanation = out.get("explanation", "")
+    else:
+        json_graph = None
+        explanation = ""
 
     if not json_graph:
         raise RuntimeError("visualize_and_explain: json_graph가 비었습니다.")
-    if explanation is None:
-        explanation = ""  # 설명은 선택
 
-    return {"json_graph": json_graph}
+    return {"json_graph": json_graph, "explanation": explanation}

@@ -36,7 +36,9 @@ ANSWER_PROMPT = """
 # ---- Utilities ----
 def _preview_rows(table: Dict[str, Any], n: int = 10) -> str:
     try:
-        rows = (table or {}).get("rows") or []
+        if not table:
+            return "[]"
+        rows = table.get("rows", [])
         head = rows[:n]
         return json.dumps(head, ensure_ascii=False)
     except Exception:
@@ -46,9 +48,12 @@ def _sources_from_snapshot(snapshot: Dict[str, Any]) -> List[Dict[str, str]]:
     if not isinstance(snapshot, dict):
         return []
     out = []
-    for s in (snapshot.get("sources") or []):
-        title = (s or {}).get("title") or ""
-        url = (s or {}).get("url") or ""
+    sources = snapshot.get("sources", [])
+    for s in sources:
+        if not isinstance(s, dict):
+            continue
+        title = s.get("title", "")
+        url = s.get("url", "")
         if title or url:
             out.append({"title": title, "url": url})
     return out
@@ -63,15 +68,7 @@ def qa_build_answer_node(state: AgentState) -> AgentState:
       - qa_snapshot: {notes: [..], sources: [...]}
 
     출력:
-      state["response"] = {
-        "text": str,                         # 최종 답변
-        "attachments": {
-          "chart_json": str|None,            # Plotly Figure JSON
-          "table_preview": List[dict]|None,  # rows 상위 10개
-          "sources": List[{title,url}]       # 외부 참고 링크
-        },
-        "await_user": False
-      }
+      state.response = 최종 답변 텍스트
     """
     question: str = state.user_message or ""
     table: Dict[str, Any] = state.qa_table or {}
@@ -88,7 +85,7 @@ def qa_build_answer_node(state: AgentState) -> AgentState:
         llm_text = llm.invoke({
             "question": question,
             "table_preview": _preview_rows(table, n=10),
-            "snapshot_notes": "; ".join(snapshot.get("notes") or []),
+            "snapshot_notes": "; ".join(snapshot.get("notes", [])),
         }).content.strip()
     except Exception as e:
         logger.exception("[qa_build_answer_node] LLM 요약 실패: %s", e)
@@ -99,4 +96,9 @@ def qa_build_answer_node(state: AgentState) -> AgentState:
         parts.append(llm_text)
     final_text = "\n\n".join(parts) if parts else "요청하신 내용을 바탕으로 핵심을 요약했습니다."
 
-    return {"response": final_text, "graph": chart_json, "table": (table.get("rows") or [])[:10], "snapshot": snapshot}
+    return state.model_copy(update={
+        "response": final_text, 
+        "graph": chart_json, 
+        "table": (table.get("rows", []))[:10], 
+        "snapshot": snapshot
+    })

@@ -12,6 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
 from app.agents_v2.orchestrator.state import PromotionSlots
+from app.agents_v2.orchestrator.state import AgentState
 
 logger = logging.getLogger(__name__)
 ScopeLiteral = Literal["브랜드", "제품"]
@@ -173,49 +174,37 @@ def _build_report_messages(
 # Node
 # =========================
 
-def generate_promotion_report_node(state: Dict) -> Dict:
+def generate_promotion_report_node(state: AgentState) -> AgentState:
     """
     입력 state:
-      {
-        "slots": PromotionSlots(dict),        # 필수
-        "sql_rows": List[dict] (선택),
-        "web_rows": List[dict] (선택)
-      }
+      - promotion_slots: PromotionSlots
+      - sql_rows: List[dict]   # 실행기 결과(표의 각 행)
+      - web_rows: List[dict]   # 실행기 결과(name/signal/source)
     출력:
-      {
-        "message": str,                       # "리포트를 정리했습니다…" 등
-        "report": PromotionReport(dict),      # 구조화 객체
-        "report_markdown": str,               # 프론트에서 바로 렌더
-        "expect_fields": []
-      }
+      - response: str          # 사용자 메시지
+      - report: ReportNodeOutput
+      - report_markdown: str   # 마크다운 형식 리포트
     """
     logger.info("===== 🚀 프로모션 리포트 생성 노드 실행 =====")
-    slots_dict: Dict = state.get("slots") or {}
-    sql_rows: List[Dict[str, Any]] = state.get("sql_rows") or []
-    web_rows: List[Dict[str, Any]] = state.get("web_rows") or []
-
-    # 슬롯 검증
-    try:
-        slots = PromotionSlots.model_validate(slots_dict)
-    except ValidationError:
-        slots = PromotionSlots()
+    
+    slots = state.promotion_slots
+    sql_rows = state.sql_rows or []
+    web_rows = state.web_rows or []
 
     # 필수 충족 여부: scope/period/target이 없으면 리포트 불가
     missing: List[str] = []
-    if not slots.scope:
+    if not slots or not slots.scope:
         missing.append("scope(브랜드/제품)")
-    if not slots.period:
+    if not slots or not slots.period:
         missing.append("period(기간)")
-    if not slots.target:
+    if not slots or not slots.target:
         missing.append("target(대상 브랜드/제품)")
 
     if missing:
-        return {
-            "message": f"리포트를 생성하려면 다음 정보가 필요합니다: {', '.join(missing)}",
-            "report": {},
-            "report_markdown": "",
+        return state.model_copy(update={
+            "response": f"리포트를 생성하려면 다음 정보가 필요합니다: {', '.join(missing)}",
             "expect_fields": [],  # 상위 그래프에서 ASK 노드로 연결
-        }
+        })
 
     # 근거 bullets 수집
     insight_bullets = _collect_insight_bullets(sql_rows, web_rows, top_k=6)
@@ -252,12 +241,12 @@ def generate_promotion_report_node(state: Dict) -> Dict:
             ]
             md = "\n".join(md_lines)
 
-        return {
-            "message": out.message or "프로모션 리포트를 정리했습니다. 검토 후 확정해 주세요.",
-            "report": out.report.model_dump(),
+        return state.model_copy(update={
+            "response": out.message or "프로모션 리포트를 정리했습니다. 검토 후 확정해 주세요.",
+            "report": out.report,
             "report_markdown": md,
             "expect_fields": [],
-        }
+        })
 
     except Exception:
         logger.exception("[generate_promotion_report_node] LLM 실패 → 폴백 리포트 생성")
@@ -292,8 +281,8 @@ def generate_promotion_report_node(state: Dict) -> Dict:
             "- 크리에이티브 콘셉트 샘플 공유",
             "- 추적 KPI/계측 이벤트 점검",
         ])
-        return {
-            "message": "프로모션 리포트 초안을 생성했습니다. 세부 조정이 필요하면 말씀해 주세요.",
+        return state.model_copy(update={
+            "response": "프로모션 리포트 초안을 생성했습니다. 세부 조정이 필요하면 말씀해 주세요.",
             "report": PromotionReport(
                 title=title,
                 summary="핵심 슬롯과 참고 근거를 바탕으로 구성한 초안입니다.",
@@ -314,4 +303,4 @@ def generate_promotion_report_node(state: Dict) -> Dict:
             ).model_dump(),
             "report_markdown": md,
             "expect_fields": [],
-        }
+        })

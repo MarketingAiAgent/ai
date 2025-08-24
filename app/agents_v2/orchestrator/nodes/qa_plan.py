@@ -203,10 +203,10 @@ def qa_plan_node(state: AgentState) -> AgentState:
         if not plan.web.query and plan.web.queries:
             plan.web.query = plan.web.queries[0]
 
-        logger.info(f"결과: {plan.model_dump()}")
+        logger.info(f"결과: {plan}")
         logger.info(f"===== 📝 QA 플래너 노드 실행 완료 =====")
 
-        return {"qa_plan": plan.model_dump()}
+        return state.model_copy(update={"qa_plan": plan})
     except Exception:
         logger.exception("[qa_plan_node] LLM 실패 → 안전 폴백")
         fallback = QAPlan(
@@ -225,4 +225,4 @@ def qa_plan_node(state: AgentState) -> AgentState:
             ),
             web=WebPlan(enabled=False),
         )
-        return {"qa_plan": fallback.model_dump()}
+        return state.model_copy(update={"qa_plan": fallback})

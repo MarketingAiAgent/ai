@@ -171,11 +171,9 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
 
 def plan_option_prompts_node(state: AgentState) -> AgentState:
     history = state.history or []
-    slots_dict =  state.promotion_slots() or {}
+    slots = state.promotion_slots
 
-    try:
-        slots = PromotionSlots.model_validate(slots_dict)
-    except ValidationError:
+    if not slots:
         slots = PromotionSlots()
 
     messages = _build_messages(history, slots)
@@ -234,4 +232,4 @@ def plan_option_prompts_node(state: AgentState) -> AgentState:
     if not plans.web.query and plans.web.queries:
         plans.web.query = plans.web.queries[0]
 
-    return {"tool_plans": plans}
+    return state.model_copy(update={"tool_plans": plans})

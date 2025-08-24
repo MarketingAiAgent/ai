@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Dict, Literal, Optional, Any
 
 from app.agents_v2.orchestrator.nodes.qa_plan import QAPlan
+from app.agents_v2.orchestrator.nodes.plan_options import OptionToolPlans
 
 # ===== Promotion ======
 
@@ -56,21 +57,34 @@ class PromotionSlots(BaseModel):
 
 # ===== Main State =====
 class AgentState(BaseModel):
-    history: List[Dict[str, str]] = []
-    user_message: str = ""
-    intent: Literal["QA", "Promotion", "Out-of-scope"]
-    promotion_slots: Optional[PromotionSlots] = None
-    response: Optional[str] = None
-    qa_plan: Optional[QAPlan] = None
-    graph: Optional[Dict[str, Any]] = None
-    table: Optional[Dict[str, Any]] = None
-    snapshot: Optional[Dict[str, Any]] = None
-    tool_plan
-
-    def __init__(self, history: List[Dict[str, str]], user_message: str, promotion_slots: Optional[PromotionSlots] = None):
-        self.history = history
-        self.user_message = user_message
-        self.intent = "Out-of-scope"
-        self.promotion_slots = promotion_slots
-        self.response = None
-        self.graph = None
+    model_config = ConfigDict(extra="allow")
+    
+    # 기본 정보
+    history: List[Dict[str, str]] = Field(default_factory=list)
+    user_message: str = Field(default="")
+    intent: Literal["QA", "Promotion", "Out-of-scope"] = Field(default="Out-of-scope")
+    
+    # 프로모션 관련
+    promotion_slots: Optional[PromotionSlots] = Field(default=None)
+    tool_plans: Optional[OptionToolPlans] = Field(default=None)
+    
+    # QA 관련
+    qa_plan: Optional[QAPlan] = Field(default=None)
+    qa_table: Optional[Dict[str, Any]] = Field(default=None)
+    qa_chart: Optional[str] = Field(default=None)
+    qa_snapshot: Optional[Dict[str, Any]] = Field(default=None)
+    
+    # 응답 관련
+    response: Optional[str] = Field(default=None)
+    graph: Optional[Dict[str, Any]] = Field(default=None)
+    table: Optional[Dict[str, Any]] = Field(default=None)
+    snapshot: Optional[Dict[str, Any]] = Field(default=None)
+    
+    # 도구 실행 결과
+    sql_rows: Optional[List[Dict[str, Any]]] = Field(default=None)
+    web_rows: Optional[List[Dict[str, Any]]] = Field(default=None)
+    
+    # 편의 메서드
+    def promotion_slots_dict(self) -> Optional[Dict[str, Any]]:
+        """하위 호환성을 위한 메서드"""
+        return self.promotion_slots.model_dump() if self.promotion_slots else None
