@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
-from app.config import settings
+from app.core.config import settings
 from typing import List, Dict, Literal
 import json
 from app.agents_v2.orchestrator.state import AgentState

@@ -1,6 +1,8 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Dict, Literal, Optional, Any
 
+from app.agents_v2.orchestrator.nodes.qa_plan import QAPlan
+
 # ===== Promotion ======
 
 Scope = Literal["brand", "category"] 
@@ -19,7 +21,7 @@ class PromotionSlots(BaseModel):
     concept: Optional[str] = Field(
         default=None,
         description="예: '신학기 번들', '크리에이터 협업'. 옵션 소싱 중 제안되면 채움.",
-    )
+    )   
 
     scope: Optional[Scope] = Field(
         default=None,
@@ -59,6 +61,8 @@ class AgentState(BaseModel):
     intent: Literal["QA", "Promotion", "Out-of-scope"]
     promotion_slots: Optional[PromotionSlots] = None
     response: Optional[str] = None
+    qa_plan: Optional[QAPlan] = None
+    
 
     def __init__(self, history: List[Dict[str, str]], user_message: str, promotion_slots: Optional[PromotionSlots] = None):
         self.history = history
