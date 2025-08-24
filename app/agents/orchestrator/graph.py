@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import textwrap
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo   
+import time 
 from typing import List, Optional, Dict, Any, Literal, TypedDict, Union
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import timedelta
@@ -424,32 +427,43 @@ def tool_executor_node(state: OrchestratorState):
         "marketing_trend_search": lambda args: marketing_trend_search(args.get("question", "")),
         "beauty_youtuber_trend_search": lambda args: beauty_youtuber_trend_search(args.get("question", "")),
     }
+    # ⏱ 도구별 타임아웃
+    TOOL_TIMEOUTS = {
+        "t2s": 60, 
+        "scrape_webpages": 60,
+        "tavily_search": 60,
+        "marketing_trend_search": 60,
+        "beauty_youtuber_trend_search": 60,
+    }
 
     tool_results = {}
     MAX_WORKERS = 3
-
     with ThreadPoolExecutor(max_workers=min(len(tool_calls), MAX_WORKERS)) as executor:
-        future_to_key = {}
+        future_to_meta = {}
         for i, call in enumerate(tool_calls):
             name = call.get("tool")
             args = call.get("args", {})
-            logger.info(f"🧩 {name} 실행")
-            if name in tool_map:
-                key = f"{name}_{i}"
-                future_to_key[executor.submit(tool_map[name], args)] = key
-            else:
+            if name not in tool_map:
                 logger.warning(f"알 수 없는 도구 '{name}' 호출은 건너뜁니다.")
+                continue
+            key = f"{name}_{i}"
+            logger.info(f"🧩 {name} 실행")
+            fut = executor.submit(tool_map[name], args)
+            future_to_meta[fut] = (key, name, time.time())
 
-        for fut in future_to_key:
-            key = future_to_key[fut]
+        for fut, (key, name, start_ts) in future_to_meta.items():
+            timeout = TOOL_TIMEOUTS.get(name, 12)
             try:
-                tool_results[key] = fut.result(timeout=12)
+                result = fut.result(timeout=timeout)
+                took = time.time() - start_ts
+                logger.info(f"✅ '{key}' 완료 | {took:.2f}s")
+                tool_results[key] = result
             except TimeoutError:
-                logger.error(f"'{key}' 툴 실행 타임아웃")
-                tool_results[key] = {"error": "timeout", "message": "요청 시간이 초과되었습니다(12초).", "tool": key.split("_")[0]}
+                logger.error(f"'{key}' 툴 실행 타임아웃({timeout}s)")
+                tool_results[key] = {"error": "timeout", "message": f"요청 시간이 초과되었습니다({timeout}초).", "tool": name}
             except Exception as e:
                 logger.error(f"'{key}' 툴 실행 중 오류: {e}")
-                tool_results[key] = {"error": "runtime", "message": str(e), "tool": key.split("_")[0]}
+                tool_results[key] = {"error": "runtime", "message": str(e), "tool": name}
 
     existing = state.get("tool_results") or {}
     return {"tool_results": {**existing, **tool_results}}
@@ -483,18 +497,41 @@ def visualizer_caller_node(state: OrchestratorState):
     viz_response = visualizer_app.invoke(viz_state)
     if viz_response:
         tool_results["visualization"] = {
-            "json_graph": viz_response.get("json_graph"),
-            "explanation": viz_response.get("output")
-        }
+            "json_graph": viz_response.get("json_graph")       
+             }
     return {"tool_results": tool_results}
 
-async def response_generator_node(state: OrchestratorState):
-    """
-    변경점
-    1) LLM 호출을 스트리밍(astream)으로 전환 → SSE가 on_chat_model_stream 토큰을 받도록.
-    2) 툴 결과 키 접두어 정정: web_search→tavily_search, scraped_pages→scrape_webpages, marketing_trend_results→marketing_trend_search
-    """
-    logger.info("--- 🗣️ 응답 생성 노드 (streaming) ---")
+def _render_table_md(table: Dict[str, Any], max_rows: int = 10) -> str:
+    cols = table.get("columns") or []
+    rows = (table.get("rows") or [])[:max_rows]
+
+    def esc(x):
+        s = "" if x is None else str(x)
+        # 마크다운 파이프/개행 이스케이프
+        return s.replace("|", r"\|").replace("\n", " ").replace("\r", " ")
+
+    if not cols:
+        # rows가 dict면 키를 추출
+        if rows and isinstance(rows[0], dict):
+            cols = list(rows[0].keys())
+        else:
+            return ""
+
+    header = "| " + " | ".join(esc(c) for c in cols) + " |"
+    sep = "| " + " | ".join("---" for _ in cols) + " |"
+    lines = [header, sep]
+
+    for r in rows:
+        if isinstance(r, dict):
+            vals = [esc(r.get(c, "")) for c in cols]
+        else:
+            vals = [esc(v) for v in r]
+        lines.append("| " + " | ".join(vals) + " |")
+
+    return "\n".join(lines)
+
+def response_generator_node(state: OrchestratorState):
+    logger.info("--- 🗣️ 응답 생성 노드 (callback streaming via .invoke) ---")
     instructions = state.get("instructions")
     tr = state.get("tool_results") or {}
 
@@ -504,36 +541,49 @@ async def response_generator_node(state: OrchestratorState):
         else "사용자 요청에 맞춰 정중하고 간결하게 답변해 주세요."
     )
 
-    # ---- (1) 툴 결과 수집: 접두어 정정 ----
+    # 툴 결과 수집
     t2s_table = None
     web_search = None
     scraped_pages = None
     marketing_trend_results = None
     youtuber_trend_results = None
-
     for key, value in tr.items():
         if key.startswith("t2s") and isinstance(value, dict) and "rows" in value:
             t2s_table = value
-        elif key.startswith("tavily_search"):          # ← ✅ 기존 "web_search"에서 정정
+        elif key.startswith("tavily_search"):
             web_search = value
-        elif key.startswith("scrape_webpages"):        # ← ✅ 기존 "scraped_pages"에서 정정
+        elif key.startswith("scrape_webpages"):
             scraped_pages = value
-        elif key.startswith("marketing_trend_search"): # ← ✅ 기존 "marketing_trend_results"에서 정정
+        elif key.startswith("marketing_trend_search"):
             marketing_trend_results = value
         elif key.startswith("beauty_youtuber_trend_search"):
             youtuber_trend_results = value
 
-    action_decision = tr.get("action")
+    action_decision   = tr.get("action")
     knowledge_snippet = tr.get("knowledge") if isinstance(tr.get("knowledge"), str) else None
     option_candidates = tr.get("option_candidates") if isinstance(tr.get("option_candidates"), dict) else None
 
-    # ---- (2) 프롬프트/LLM 준비 (기존 코드 유지) ----
-    # NOTE: 아래 prompt_tmpl은 기존 프로젝트의 템플릿을 사용하세요.
-    #       여기선 변수들만 그대로 전달해 줍니다.
-    prompt_tmpl = """
+    # 선택지/오류 요약/길이 힌트
+    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+    option_list_text  = _render_option_list_text(option_candidates, slots)
+    tool_errors_text  = _render_tool_errors_text(tr)
+    length_hint       = _compute_length_hint(tr, option_candidates, t2s_table)
+
+    prompt_tmpl = textwrap.dedent("""
+    # 길이 규칙(필수) → {length_hint}
+    - short=4~6문장, medium=7~12문장, long=13~20문장
+
     당신은 마케팅 오케스트레이터의 최종 응답 생성기입니다.
-    아래 입력만을 근거로 한국어 존댓말로 한 번에 완성된 답변을 작성해 주세요.
-    내부 도구명이나 시스템 세부 구현은 언급하지 않습니다.
+    아래 입력만을 근거로 **한국어 존댓말**로 한 번에 완성된 답변을 작성하세요.
+    내부 도구명/시스템 구현은 언급하지 마세요.
+
+    [작성 우선순위]
+    1) action_decision.ask_prompts가 있으면 가장 먼저 공손한 한 문장 질문.
+    2) 다음 줄에 **option_list_text**를 변형 없이 그대로 출력.
+    3) 근거/설명은 2~4줄(수치가 있으면 구체적으로 표기).
+    4) (주의) [TABLE_START]/[TABLE_END] 토큰은 **서버가 삽입**합니다. 모델은 사용하지 마세요.
+    5) 마지막 줄: 다음 단계 1문장.
+    6) tool_errors_text가 있으면 맨 끝 한 줄에만 첨부(“참고: …”).
 
     - instructions_text:
     {instructions_text}
@@ -541,10 +591,10 @@ async def response_generator_node(state: OrchestratorState):
     - action_decision (JSON):
     {action_decision_json}
 
-    - option_candidates (JSON):
-    {option_candidates_json}
+    - option_list_text (그대로 출력):
+    {option_list_text}
 
-    - t2s_table (JSON):
+    - t2s_table (요약 JSON):
     {t2s_table_json}
 
     - web_search (JSON):
@@ -559,9 +609,12 @@ async def response_generator_node(state: OrchestratorState):
     - youtuber_trend_results (JSON):
     {youtuber_trend_results_json}
 
+    - tool_errors_text:
+    {tool_errors_text}
+
     - knowledge_snippet:
     {knowledge_snippet}
-    """.strip()
+    """)
 
     to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
 
@@ -570,66 +623,41 @@ async def response_generator_node(state: OrchestratorState):
         model="gemini-2.5-flash",
         temperature=0,
         api_key=settings.GOOGLE_API_KEY,
-        max_output_tokens=600  # 상한은 최상위 인자로
     )
     chain = prompt | llm
 
     inputs = {
+        "length_hint": length_hint,
         "instructions_text": instructions_text,
         "action_decision_json": to_json(action_decision),
-        "option_candidates_json": to_json(option_candidates),
-        "t2s_table_json": to_json(t2s_table),
+        "option_list_text": option_list_text,
+        "t2s_table_json": to_json({
+            "columns": (t2s_table or {}).get("columns"),
+            "row_count": (t2s_table or {}).get("row_count")
+        }),
         "web_search_json": to_json(web_search),
         "scraped_pages_json": to_json(scraped_pages),
         "marketing_trend_results_json": to_json(marketing_trend_results),
         "youtuber_trend_results_json": to_json(youtuber_trend_results),
+        "tool_errors_text": tool_errors_text or "",
         "knowledge_snippet": knowledge_snippet or "",
     }
 
-    # ---- (3) 스트리밍 실행 ----
-    parts: list[str] = []
+    res = chain.invoke(inputs)
+    final_response = getattr(res, "content", None) or str(res) or ""
 
-    async for chunk in chain.astream(inputs):
-        # LangChain의 AIMessageChunk
-        text = ""
-        if hasattr(chunk, "content"):
-            if isinstance(chunk.content, str):
-                text = chunk.content
-            elif isinstance(chunk.content, list):
-                # content가 조각 리스트인 경우 안전 결합
-                try:
-                    text = "".join(
-                        (c.get("text", "") if isinstance(c, dict) else str(c))
-                        for c in chunk.content
-                    )
-                except Exception:
-                    text = "".join(map(str, chunk.content))
-        else:
-            # 혹시 모를 다른 형태
-            text = str(chunk)
+    table_md = ""
+    if t2s_table and t2s_table.get("rows"):
+        table_md = _render_table_md(t2s_table, max_rows=10)
+    if table_md:
+        final_response = f"{final_response}\n\n[TABLE_START]\n{table_md}\n[TABLE_END]"
 
-        if text:
-            parts.append(text)
+    logger.info(f"최종 결과(callback stream):\n{final_response}")
 
-    final_response = "".join(parts).strip()
-
-    # 폴백: 혹시 스트림이 비어 있으면 non-streaming으로 한 번 더 시도
-    if not final_response:
-        try:
-            res = await chain.ainvoke(inputs)
-            final_response = getattr(res, "content", None) or str(res) or ""
-        except Exception:
-            final_response = "죄송합니다. 응답 생성 중 문제가 발생했습니다."
-
-    logger.info(f"최종 결과(L-stream):\n{final_response}")
-
-    # ---- (4) 히스토리 업데이트/반환 ----
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})
     history.append({"role": "assistant", "content": final_response})
-
     return {"history": history, "user_message": "", "output": final_response}
-
 
 # ===== Graph =====
 workflow = StateGraph(OrchestratorState)
