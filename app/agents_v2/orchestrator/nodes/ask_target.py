@@ -229,11 +229,26 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
     web_rows = state.web_rows or []
     top_k = 3  # 기본값
 
-    # 전제: scope/period가 있어야 옵션을 물을 타이밍
-    if not slots or not slots.scope or not slots.period:
+    if not slots:
+        return state.model_copy(update={
+            "response": "프로모션 정보가 없습니다. 먼저 브랜드/제품 기준과 기간을 설정해 주세요.",
+            "expect_fields": ["scope", "period"],
+        })
+
+    action, expect_fields = slots.decide_next_action()
+    
+    # ASK_SCOPE_PERIOD 단계인 경우 이전 단계로 리다이렉트
+    if action == "ASK_SCOPE_PERIOD":
         return state.model_copy(update={
             "response": "스코프(브랜드/제품)와 기간을 먼저 알려주시면 타겟 후보를 추천드리겠습니다.",
-            "expect_fields": ["scope", "period"],
+            "expect_fields": expect_fields,
+        })
+    
+    # RECAP_CONFIRM 단계인 경우 다음 단계로 리다이렉트
+    if action == "RECAP_CONFIRM":
+        return state.model_copy(update={
+            "response": "모든 정보가 완성되었습니다. 리포트를 생성하겠습니다.",
+            "expect_fields": [],
         })
 
     # 증거 병합
@@ -241,7 +256,7 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
     if not evidences:
         return state.model_copy(update={
             "response": "현재 추천할 타겟 후보를 찾지 못했습니다. 직접 브랜드/제품명을 입력해 주시겠어요?",
-            "expect_fields": ["target"],
+            "expect_fields": expect_fields,
         })
 
     # LLM 호출(질문/옵션 생성)
@@ -262,7 +277,7 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
         return state.model_copy(update={
             "response": final_message,
             "options": options,
-            "expect_fields": ["target"],
+            "expect_fields": expect_fields,
         })
     except Exception:
         logger.exception("[build_options_and_question_node] LLM 실패 → 폴백 메시지 사용")
@@ -279,5 +294,5 @@ def build_options_and_question_node(state: AgentState) -> AgentState:
         return state.model_copy(update={
             "response": final_message,
             "options": opts,
-            "expect_fields": ["target"],
+            "expect_fields": expect_fields,
         })

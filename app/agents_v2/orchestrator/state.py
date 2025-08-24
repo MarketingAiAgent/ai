@@ -63,12 +63,18 @@ class PromotionSlots(BaseModel):
             target=self.target or other_target,
         )
 
-    def decide_next_action(self) -> Literal["ASK_SCOPE_PERIOD", "ASK_TARGET_WITH_OPTIONS", "RECAP_CONFIRM"]:
+    def decide_next_action(self) -> tuple[Literal["ASK_SCOPE_PERIOD", "ASK_TARGET_WITH_OPTIONS", "RECAP_CONFIRM"], list[str]]:
+        """다음 액션과 필요한 필드들을 반환합니다."""
         if self.scope is None or self.period is None:
-            return "ASK_SCOPE_PERIOD"
+            missing = []
+            if self.scope is None:
+                missing.append("scope")
+            if self.period is None:
+                missing.append("period")
+            return "ASK_SCOPE_PERIOD", missing
         if self.target is None:
-            return "ASK_TARGET_WITH_OPTIONS"
-        return "RECAP_CONFIRM"
+            return "ASK_TARGET_WITH_OPTIONS", ["target"]
+        return "RECAP_CONFIRM", []
 
 # ===== Main State =====
 class AgentState(BaseModel):

@@ -191,19 +191,19 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
     sql_rows = state.sql_rows or []
     web_rows = state.web_rows or []
 
-    # 필수 충족 여부: scope/period/target이 없으면 리포트 불가
-    missing: List[str] = []
-    if not slots or not slots.scope:
-        missing.append("scope(브랜드/제품)")
-    if not slots or not slots.period:
-        missing.append("period(기간)")
-    if not slots or not slots.target:
-        missing.append("target(대상 브랜드/제품)")
-
-    if missing:
+    if not slots:
         return state.model_copy(update={
-            "response": f"리포트를 생성하려면 다음 정보가 필요합니다: {', '.join(missing)}",
-            "expect_fields": missing,  # 상위 그래프에서 ASK 노드로 연결
+            "response": "프로모션 정보가 없습니다. 먼저 기본 정보를 설정해 주세요.",
+            "expect_fields": ["scope", "period"],
+        })
+
+    action, expect_fields = slots.decide_next_action()
+    
+    # 아직 완성되지 않은 경우 이전 단계로 리다이렉트
+    if action != "RECAP_CONFIRM":
+        return state.model_copy(update={
+            "response": f"리포트를 생성하려면 다음 정보가 필요합니다: {', '.join(expect_fields)}",
+            "expect_fields": expect_fields,
         })
 
     # 근거 bullets 수집
@@ -242,7 +242,7 @@ def generate_promotion_report_node(state: AgentState) -> AgentState:
             md = "\n".join(md_lines)
 
         return state.model_copy(update={
-            "response": out.message or "프로모션 리포트를 정리했습니다. 검토 후 확정해 주세요.",
+            "response": out.message or "프로모션 리포트를 정리했습니다. 검토 후 확정해 주세요.\n\n" + md,
             "report": out.report,
             "report_markdown": md,
             "expect_fields": [],  # 리포트 완성 후 더 이상 입력 불필요
