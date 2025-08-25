@@ -972,7 +972,7 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
   }
 }
 
-    payload = {'type': "graph", "content": json.dumps(example_graph, ensure_ascii=False)}
+    payload = {'type': "graph", "content": example_graph}
     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     
 
