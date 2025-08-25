@@ -6,5 +6,5 @@ data:
   PROJECT_NAME: "AI Agent tool for Marketer"
   API_VERSION_STR: "/api/v1"
   LOG_LEVEL: "DEBUG"
-  PROFILE: "prod"
+  PROFILE: "PROD"
   SUPERBASE_URL: "https://pvhqgrqyquphqtmqxqih.supabase.co"
