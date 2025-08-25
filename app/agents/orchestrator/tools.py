@@ -96,22 +96,58 @@ def marketing_trend_search(question: str) -> Dict[str, Any]:
     반환 스키마:
     { "results": [ {"title":..,"chunk_text":..,"text":..,"subtitle":..}, ... ] }
     """
+    logger.info("🔍 마케팅 트렌드 검색 시작 - 질문: %s", question)
+    
     if not (supabase_client and embeddings):
+        logger.error("❌ Supabase 클라이언트 또는 임베딩 미설정")
         return {"results": [], "error": "supabase_client/embeddings not configured"}
+    
     try:
+        # 임베딩 생성
+        logger.info("🤖 임베딩 벡터 생성 중...")
         vec = embeddings.embed_query(question)
+        logger.info("✅ 임베딩 생성 완료 - 벡터 차원: %d", len(vec))
+        
+        # Supabase RPC 호출
+        logger.info("📞 Supabase marketing_vector_search 함수 호출 중...")
         resp = supabase_client.rpc("marketing_vector_search", {"query_vector": vec}).execute()
+        logger.info("✅ Supabase 호출 완료")
+        
+        # 응답 데이터 확인
+        raw_data = resp.data or []
+        logger.info("📊 응답 데이터 개수: %d", len(raw_data))
+        
+        if not raw_data:
+            logger.warning("⚠️ Supabase에서 빈 결과 반환")
+            return {"results": []}
+        
+        # 결과 처리
         out = []
-        for it in resp.data or []:
+        for i, it in enumerate(raw_data):
+            logger.debug("처리 중 %d번째 아이템: %s", i+1, list(it.keys()) if isinstance(it, dict) else type(it))
             out.append({
                 "title": it.get("title", "제목 없음"),
                 "chunk_text": it.get("chunk_text", ""),
                 "text": it.get("text", ""),
                 "subtitle": it.get("subtitle", ""),
             })
+        
+        logger.info("🎉 마케팅 트렌드 검색 완료 - 최종 결과: %d건", len(out))
+        
+        # 첫 번째 결과 샘플 로깅 (디버깅용)
+        if out:
+            first_result = out[0]
+            logger.info("📋 첫 번째 결과 샘플: title='%s', chunk_length=%d", 
+                       first_result.get("title", "")[:50], 
+                       len(first_result.get("chunk_text", "")))
+        
         return {"results": out}
+        
     except Exception as e:
-        logger.error("Supabase marketing search 실패: %s", e)
+        logger.error("❌ Supabase marketing search 실패: %s", e)
+        logger.error("에러 타입: %s", type(e).__name__)
+        if hasattr(e, 'response'):
+            logger.error("HTTP 응답 상태: %s", getattr(e.response, 'status_code', 'N/A'))
         return {"results": [], "error": str(e)}
 
 def beauty_youtuber_trend_search(question: str, summarize=True) -> Dict[str, Any]:
@@ -123,7 +159,8 @@ def beauty_youtuber_trend_search(question: str, summarize=True) -> Dict[str, Any
         return {"results": [], "error": "supabase_client/embeddings not configured"}
     try:
         vec = embeddings.embed_query(question)
-        resp = supabase_client.rpc("beauty_vector_search", {"query_vector": vec}).execute()
+        resp = supabase_client.rpc("beauty_vector_search", {
+            "query_vector": vec}).execute()
         out = []
         for it in resp.data or []:
             out.append({
@@ -262,8 +299,18 @@ def get_knowledge_snapshot(
       "raw": { "web_search": ..., "scraped_pages": ..., "marketing": ..., "youtuber": ... }  # (옵션)
     }
     """
+    logger.info("🔍 지식 스냅샷 수집 시작")
+    logger.info("📋 입력 파라미터:")
+    logger.info("  - topic: %s", topic)
+    logger.info("  - use_web: %s", use_web)
+    logger.info("  - use_supabase: %s", use_supabase)
+    logger.info("  - max_results: %d", max_results)
+    logger.info("  - scrape_k: %d", scrape_k)
+    
     # 0) 기본 쿼리
     query = topic or "한국 소비자 트렌드 2025 숏폼 바이럴 마케팅"
+    logger.info("🎯 최종 검색 쿼리: %s", query)
+    
     all_texts: List[str] = []
     sources: List[Dict[str, str]] = []
     notes: List[str] = []
@@ -275,53 +322,142 @@ def get_knowledge_snapshot(
 
     # 1) 웹 검색
     if use_web:
+        logger.info("🌐 웹 검색 단계 시작...")
         web_search_res = run_tavily_search(query, max_results=max_results)
-        for r in (web_search_res.get("results") or []):
+        
+        logger.info("📊 웹 검색 결과 분석:")
+        web_results = web_search_res.get("results") or []
+        logger.info("  - 검색 결과 수: %d", len(web_results))
+        
+        if web_search_res.get("error"):
+            logger.warning("⚠️ 웹 검색 에러: %s", web_search_res.get("error"))
+        
+        for i, r in enumerate(web_results):
             title = r.get("title") or ""
             url = r.get("url") or ""
             content = r.get("content") or ""
             sources.append({"title": title, "url": url})
+            
+            logger.info("  %d번 결과: %s", i+1, title[:50] + "..." if len(title) > 50 else title)
+            logger.info("    - URL: %s", url)
+            logger.info("    - 콘텐츠 길이: %d자", len(content))
+            
             # 타이틀/스니펫만 먼저 수집
-            if title: all_texts.append(title)
-            if content: all_texts.append(content)
+            if title: 
+                all_texts.append(title)
+                logger.debug("    - 타이틀 추가됨")
+            if content: 
+                all_texts.append(content)
+                logger.debug("    - 콘텐츠 추가됨")
+
+        logger.info("📚 수집된 텍스트 수: %d", len(all_texts))
 
         # 2) 스크랩(최대 scrape_k개)
         urls = [s["url"] for s in sources if s.get("url")] if sources else []
+        logger.info("🔗 스크래핑 대상 URL 수: %d", len(urls))
+        
         if urls:
+            logger.info("📄 웹페이지 스크래핑 시작...")
             scraped_res = scrape_webpages(urls[:scrape_k])
-            for d in (scraped_res.get("documents") or []):
+            
+            scraped_docs = scraped_res.get("documents") or []
+            logger.info("📄 스크래핑 결과:")
+            logger.info("  - 스크래핑된 문서 수: %d", len(scraped_docs))
+            
+            if scraped_res.get("error"):
+                logger.warning("⚠️ 스크래핑 에러: %s", scraped_res.get("error"))
+            
+            for i, d in enumerate(scraped_docs):
                 if d.get("content"):
+                    content_length = len(d["content"])
                     all_texts.append(d["content"])
+                    logger.info("  %d번 문서: %s (길이: %d자)", i+1, d.get("source", "Unknown")[:50], content_length)
+        else:
+            logger.info("⚠️ 스크래핑할 URL이 없습니다")
 
     # 3) Supabase 마케팅/뷰티 인사이트
     if use_supabase:
+        logger.info("🗄️ Supabase 검색 단계 시작...")
+        
+        logger.info("📈 마케팅 트렌드 검색 중...")
         mk_res = marketing_trend_search(query)
+        
+        mk_results = mk_res.get("results") or []
+        logger.info("📊 마케팅 검색 결과:")
+        logger.info("  - 마케팅 결과 수: %d", len(mk_results))
+        
+        if mk_res.get("error"):
+            logger.warning("⚠️ 마케팅 검색 에러: %s", mk_res.get("error"))
+        
+        for i, item in enumerate(mk_results):
+            for k in ("title", "chunk_text", "text", "subtitle"):
+                if item.get(k): 
+                    all_texts.append(item[k])
+                    logger.debug("  %d번 마케팅 결과 %s 필드 추가됨", i+1, k)
+        
+        logger.info("💄 뷰티 유튜버 트렌드 검색 중...")
         yt_res = beauty_youtuber_trend_search(query, summarize=False)
-        for item in (mk_res.get("results") or []):
+        
+        yt_results = yt_res.get("results") or []
+        logger.info("📊 뷰티 유튜버 검색 결과:")
+        logger.info("  - 뷰티 유튜버 결과 수: %d", len(yt_results))
+        
+        if yt_res.get("error"):
+            logger.warning("⚠️ 뷰티 유튜버 검색 에러: %s", yt_res.get("error"))
+        
+        for i, item in enumerate(yt_results):
             for k in ("title", "chunk_text", "text", "subtitle"):
-                if item.get(k): all_texts.append(item[k])
-        for item in (yt_res.get("results") or []):
-            for k in ("title", "chunk_text", "text", "subtitle"):
-                if item.get(k): all_texts.append(item[k])
+                if item.get(k): 
+                    all_texts.append(item[k])
+                    logger.debug("  %d번 뷰티 유튜버 결과 %s 필드 추가됨", i+1, k)
+
+    logger.info("📚 전체 텍스트 수집 완료:")
+    logger.info("  - 총 텍스트 수: %d", len(all_texts))
+    logger.info("  - 총 텍스트 길이: %d자", sum(len(t) for t in all_texts))
 
     # 4) 용어 추출/랭킹
+    logger.info("🔤 용어 추출 및 랭킹 시작...")
     corpus_terms: List[str] = []
-    for txt in all_texts:
-        corpus_terms.extend(_extract_terms(txt))
+    for i, txt in enumerate(all_texts):
+        extracted = _extract_terms(txt)
+        corpus_terms.extend(extracted)
+        if i < 3:  # 처음 3개 텍스트만 상세 로깅
+            logger.debug("  %d번 텍스트에서 추출된 용어: %s", i+1, extracted[:10])
+    
+    logger.info("📊 용어 추출 결과:")
+    logger.info("  - 추출된 용어 수: %d", len(corpus_terms))
+    logger.info("  - 고유 용어 수: %d", len(set(corpus_terms)))
+    
     trending_terms = _rank_terms(corpus_terms, top_k=8)
+    logger.info("🏆 랭킹된 트렌딩 용어:")
+    for i, term in enumerate(trending_terms):
+        logger.info("  %d위: %s", i+1, term)
 
     # 5) 시즌 스파이크 감지(간단 키워드 매칭)
+    logger.info("📅 시즌 스파이크 감지 중...")
     seasonal_spikes = _guess_seasonal_spikes(all_texts)
+    logger.info("📅 발견된 시즌 스파이크:")
+    for spike in seasonal_spikes:
+        logger.info("  - %s: %s", spike.get("term"), spike.get("window"))
 
     # 6) 노트(간단 요약)
+    logger.info("📝 노트 생성 중...")
     if web_search_res and web_search_res.get("results"):
-        notes.append(f"웹 검색 결과 {len(web_search_res['results'])}건 수집")
+        note = f"웹 검색 결과 {len(web_search_res['results'])}건 수집"
+        notes.append(note)
+        logger.info("  - %s", note)
     if scraped_res and scraped_res.get("documents"):
-        notes.append(f"스크랩 문서 {len(scraped_res['documents'])}건 분석")
+        note = f"스크랩 문서 {len(scraped_res['documents'])}건 분석"
+        notes.append(note)
+        logger.info("  - %s", note)
     if mk_res and mk_res.get("results") is not None:
-        notes.append(f"Supabase 마케팅 결과 {len(mk_res['results'])}건")
+        note = f"Supabase 마케팅 결과 {len(mk_res['results'])}건"
+        notes.append(note)
+        logger.info("  - %s", note)
     if yt_res and yt_res.get("results") is not None:
-        notes.append(f"Supabase 뷰티 유튜버 결과 {len(yt_res['results'])}건")
+        note = f"Supabase 뷰티 유튜버 결과 {len(yt_res['results'])}건"
+        notes.append(note)
+        logger.info("  - %s", note)
 
     snapshot = {
         "trending_terms": trending_terms,
@@ -337,5 +473,11 @@ def get_knowledge_snapshot(
         # },
     }
 
-    logger.info("knowledge snapshot: %s", snapshot)
+    logger.info("🎉 지식 스냅샷 생성 완료!")
+    logger.info("📊 최종 스냅샷 요약:")
+    logger.info("  - 트렌딩 용어: %s", trending_terms)
+    logger.info("  - 시즌 스파이크: %s", seasonal_spikes)
+    logger.info("  - 소스 수: %d", len(sources[:max_results]))
+    logger.info("  - 노트: %s", notes)
+    
     return snapshot

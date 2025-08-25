@@ -12,7 +12,7 @@ class PromotionSlots(BaseModel):
     duration: Optional[str] = Field(None, description="프로모션 기간")
 
 class PromotionSlotUpdate(BaseModel):
-    target_type: Optional[Literal["brand_target", "category_target"]] = None
+    target_type: Optional[Literal["brand", "category"]] = None
     brand: Optional[str] = None
     target: Optional[str] = None
     objective: Optional[str] = None

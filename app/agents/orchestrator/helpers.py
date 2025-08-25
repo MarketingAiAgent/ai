@@ -1,9 +1,12 @@
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import json 
 import re 
 import math
+
+logger = logging.getLogger(__name__)
 
 def summarize_history(history: List[Dict[str, str]], limit_chars: int = 800) -> str:
     """최근 히스토리를 간단 요약으로 제공 (LLM 컨텍스트용)"""
@@ -289,75 +292,162 @@ def compute_opportunity_score(rows: List[Dict[str, Any]], trending_terms: List[s
     - trending_terms: 외부 트렌딩 키워드 목록(라벨/이름 매칭 시 보너스)
     반환: 각 행에 scores/opportunity_score/reasons를 부착한 새 리스트
     """
+    logger.info("🎯 기회 점수 계산 시작")
+    logger.info("📊 입력 데이터:")
+    logger.info("  - 처리할 행 수: %d", len(rows))
+    logger.info("  - 트렌딩 용어 수: %d", len(trending_terms))
+    logger.info("  - 트렌딩 용어: %s", trending_terms)
+    
     metrics = list(WEIGHTS.keys()) + ["revenue", "aov", "volatility_score"]
+    logger.info("📈 분석할 메트릭: %s", metrics)
+    logger.info("⚖️ 메트릭 가중치: %s", WEIGHTS)
+    
     stat = _collect_metric_vectors(rows, metrics)
+    logger.info("📊 메트릭 통계 수집 완료:")
+    for metric, (min_val, max_val) in stat.items():
+        logger.info("  - %s: [%.2f, %.2f]", metric, min_val, max_val)
 
     enriched = []
-    for r in rows:
+    for i, r in enumerate(rows):
+        logger.debug("🔍 %d번 행 처리 중: %s", i+1, r.get("brand_name") or r.get("product_name") or r.get("category_name") or "Unknown")
+        
         scores: Dict[str, float] = {}
         reasons: List[str] = []
 
+        # 메트릭별 점수 계산
         for m, w in WEIGHTS.items():
             v = r.get(m)
             try:
                 v = float(v)
             except Exception:
                 v = None
+                
             s = _norm(v, stat.get(m), GOOD_DIR.get(m, +1))
             if s is not None:
                 scores[m] = s * w
+                logger.debug("    - %s: 원값=%.2f, 정규화=%.4f, 가중치=%.2f, 최종=%.4f", 
+                           m, v, s, w, scores[m])
+            else:
+                logger.debug("    - %s: 값 없음 또는 변환 실패", m)
 
         # 트렌딩 보너스(간단): 라벨 필드에서 용어 매칭 시 +0.05
         label = str(r.get("brand_name") or r.get("product_name") or r.get("category_name") or "")
         bonus = 0.0
+        matched_term = None
+        
         for t in trending_terms or []:
             if t and t.lower() in label.lower():
                 bonus = 0.05
+                matched_term = t
                 reasons.append(f"트렌드 '{t}'와 매칭")
+                logger.debug("    - 트렌드 매칭: '%s' in '%s' (보너스 +0.05)", t, label)
                 break
 
         opp = sum(scores.values()) + bonus
+        logger.debug("    - 총 기회 점수: %.4f (메트릭 점수: %.4f, 트렌드 보너스: %.4f)", 
+                   opp, sum(scores.values()), bonus)
 
         # 기본 이유 몇 가지 자동 생성(있을 때만)
         if r.get("growth_pct") is not None:
-            reasons.append(f"증가율 {r.get('growth_pct')}%")
+            reason = f"증가율 {r.get('growth_pct')}%"
+            reasons.append(reason)
+            logger.debug("    - 이유 추가: %s", reason)
         if r.get("gm") is not None:
-            reasons.append(f"마진 {r.get('gm')}")
+            reason = f"마진 {r.get('gm')}"
+            reasons.append(reason)
+            logger.debug("    - 이유 추가: %s", reason)
         if r.get("inventory_days") is not None:
-            reasons.append(f"재고여력 {r.get('inventory_days')}일")
+            reason = f"재고여력 {r.get('inventory_days')}일"
+            reasons.append(reason)
+            logger.debug("    - 이유 추가: %s", reason)
         if r.get("return_rate") is not None:
-            reasons.append(f"반품률 {r.get('return_rate')}")
+            reason = f"반품률 {r.get('return_rate')}"
+            reasons.append(reason)
+            logger.debug("    - 이유 추가: %s", reason)
 
-        enriched.append({**r, "scores": scores, "opportunity_score": round(opp, 4), "reasons": reasons})
+        enriched_row = {**r, "scores": scores, "opportunity_score": round(opp, 4), "reasons": reasons}
+        enriched.append(enriched_row)
+        
+        logger.debug("    - 최종 결과: 점수=%.4f, 이유=%s", opp, reasons)
 
+    logger.info("✅ 기회 점수 계산 완료")
+    logger.info("📊 점수 분포:")
+    scores_list = [row.get("opportunity_score", 0) for row in enriched]
+    if scores_list:
+        logger.info("  - 최고 점수: %.4f", max(scores_list))
+        logger.info("  - 최저 점수: %.4f", min(scores_list))
+        logger.info("  - 평균 점수: %.4f", sum(scores_list) / len(scores_list))
+    
     return enriched
 
 def pick_diverse_top_k(rows: List[Dict[str, Any]], k: int = 4) -> List[Dict[str, Any]]:
     """
     간단한 다양성 제약: category_name, price_band, gender_age 중 하나라도 다르게 유지하려 시도.
     """
+    logger.info("🏆 다양성 기반 상위 K 선택 시작")
+    logger.info("📊 입력 데이터:")
+    logger.info("  - 전체 행 수: %d", len(rows))
+    logger.info("  - 선택할 개수: %d", k)
+    
     def tags(r):
         return (
             str(r.get("category_name") or ""),
             str(r.get("price_band") or ""),
             str(r.get("gender_age") or ""),
         )
+    
     used = set()
     picked: List[Dict[str, Any]] = []
-    for r in sorted(rows, key=lambda x: x.get("opportunity_score", 0), reverse=True):
+    
+    # 점수 순으로 정렬
+    sorted_rows = sorted(rows, key=lambda x: x.get("opportunity_score", 0), reverse=True)
+    logger.info("📈 점수 순 정렬 완료")
+    
+    # 상위 5개 점수 로깅
+    for i, row in enumerate(sorted_rows[:5]):
+        name = row.get("brand_name") or row.get("product_name") or row.get("category_name") or "Unknown"
+        score = row.get("opportunity_score", 0)
+        tags_info = tags(row)
+        logger.info("  %d위: %s (점수: %.4f, 태그: %s)", i+1, name, score, tags_info)
+    
+    for i, r in enumerate(sorted_rows):
+        name = r.get("brand_name") or r.get("product_name") or r.get("category_name") or "Unknown"
+        score = r.get("opportunity_score", 0)
         t = tags(r)
+        
+        logger.debug("🔍 %d번 검토: %s (점수: %.4f, 태그: %s)", i+1, name, score, t)
+        
         if t in used and len(picked) < max(2, k-1):
             # 같은 태그면 스킵 시도, 그래도 부족하면 허용
+            logger.debug("  ⚠️ 중복 태그 발견, 스킵 시도 (현재 선택된 수: %d)", len(picked))
             continue
+        
         used.add(t)
         picked.append(r)
+        logger.info("  ✅ 선택됨: %s (점수: %.4f, 태그: %s)", name, score, t)
+        
         if len(picked) >= k:
+            logger.info("🎯 목표 개수 %d개 달성", k)
             break
+    
     # 후보가 모자라면 높은 점수 순으로 보충
     if len(picked) < k:
-        for r in sorted(rows, key=lambda x: x.get("opportunity_score", 0), reverse=True):
+        logger.warning("⚠️ 목표 개수 %d개에 미달 (현재 %d개), 보충 중...", k, len(picked))
+        for r in sorted_rows:
             if r not in picked:
+                name = r.get("brand_name") or r.get("product_name") or r.get("category_name") or "Unknown"
+                score = r.get("opportunity_score", 0)
                 picked.append(r)
+                logger.info("  🔄 보충 선택: %s (점수: %.4f)", name, score)
             if len(picked) >= k:
                 break
+    
+    logger.info("✅ 다양성 기반 선택 완료")
+    logger.info("📊 최종 선택 결과:")
+    for i, row in enumerate(picked):
+        name = row.get("brand_name") or row.get("product_name") or row.get("category_name") or "Unknown"
+        score = row.get("opportunity_score", 0)
+        tags_info = tags(row)
+        logger.info("  %d번: %s (점수: %.4f, 태그: %s)", i+1, name, score, tags_info)
+    
     return picked

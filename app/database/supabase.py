@@ -6,6 +6,7 @@ import logging
 from typing import List, Optional
 
 from supabase import create_client, Client  
+from supabase.client import ClientOptions
 from openai import OpenAI 
 
 from app.core.config import settings 
@@ -62,7 +63,7 @@ def _init_supabase_client() -> Optional["Client"]:
             "supabase package is not available. Install with `pip install supabase`."
         )
 
-    return create_client(url, key)
+    return create_client(url, key, options=ClientOptions(postgrest_client_timeout=60))
 
 def _init_embeddings() -> Optional[OpenAIEmbeddings]:
     try:
