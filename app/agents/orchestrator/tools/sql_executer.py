@@ -6,23 +6,9 @@ import logging
 from typing import Any, Dict, List
 
 from app.agents.text_to_sql.__init__ import call_sql_generator
+from app.core.data_utils import ensure_table_payload, create_empty_table
 
 logger = logging.getLogger(__name__)
-
-
-def _ensure_table_payload(table: Any) -> Dict[str, Any]:
-    """Normalize arbitrary table-like into {rows, columns, row_count}."""
-    if not isinstance(table, dict):
-        return {"rows": [], "columns": [], "row_count": 0}
-    rows = table.get("rows", [])
-    cols = table.get("columns", [])
-    if isinstance(rows, list) and rows and isinstance(rows[0], dict) and not cols:
-        cols = list(rows[0].keys())
-    return {
-        "rows": rows if isinstance(rows, list) else [],
-        "columns": cols if isinstance(cols, list) else [],
-        "row_count": int(table.get("row_count", len(rows) or 0)),
-    }
 
 
 def run_t2s_agent_with_instruction(sql_context: Dict[str, Any], instruction: str) -> Dict[str, Any]:
@@ -38,8 +24,8 @@ def run_t2s_agent_with_instruction(sql_context: Dict[str, Any], instruction: str
             table = json.loads(table)
         except Exception:
             logger.warning("data_json is not valid JSON; using empty table")
-            table = {"rows": [], "columns": [], "row_count": 0}
-    return _ensure_table_payload(table)
+            table = create_empty_table("Invalid JSON format")
+    return ensure_table_payload(table)
 
 
 def execute_sql_from_plan(sql_plan, state: Dict[str, Any]) -> List[Dict[str, Any]]:

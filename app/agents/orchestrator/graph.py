@@ -65,15 +65,11 @@ def route_after_ask_target(state: AgentState) -> str:
 
 def route_after_qa_plan(state: AgentState) -> str:
     """QA 계획 후 분기"""
-    if not state.qa_plan:
-        return "qa_answer"
-    
-    choice = state.qa_plan.choice.lower()
-    if choice in ["t2s", "both", "web"]:
+    if state.qa_plan.use_t2s or state.qa_plan.use_web:
         return "qa_run"
     else:
         return "qa_answer"
-
+        
 # 그래프 구성
 workflow = StateGraph(AgentState)
 

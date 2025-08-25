@@ -100,7 +100,7 @@ Scope = Literal["brand", "category"]
 
 class PromotionSlots(BaseModel):
     
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
     audience: Optional[str] = Field(
         default=None,
         description="예: '20대', '대학생'. 사용자가 먼저 말한 경우에만 채움.",
@@ -183,13 +183,12 @@ class AgentState(BaseModel):
     qa_plan: Optional[QAPlan] = Field(default=None)
     qa_table: Optional[Dict[str, Any]] = Field(default=None)
     qa_chart: Optional[str] = Field(default=None)
-    qa_web_row: Optional[[Dict[str, Any]]] = Field(default=None)
+    qa_web_row: Optional[Dict[str, Any]] = Field(default=None)
     
     # 응답 관련
     response: Optional[str] = Field(default=None)
     graph: Optional[Dict[str, Any]] = Field(default=None)
     table: Optional[Dict[str, Any]] = Field(default=None)
-    snapshot: Optional[Dict[str, Any]] = Field(default=None)
     
     # 도구 실행 결과
     sql_rows: Optional[List[Dict[str, Any]]] = Field(default=None)

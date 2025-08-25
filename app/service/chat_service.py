@@ -2,9 +2,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 import json 
+import logging
 
 from app.core.config import settings
 from app.database.chat_history import save_chat_message
+
+logger = logging.getLogger(__name__)
 
 async def generate_chat_title(message: str) -> str:
     try:
@@ -18,12 +21,11 @@ async def generate_chat_title(message: str) -> str:
         return title if title else "새로운 대화"
         
     except Exception as e:
-        print(f"Error generating chat title: {e}")
+        logger.error(f"Error generating chat title: {e}")
         return "새로운 대화"
 
 
 async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stream):
-    print("stream_and_save_wrapper")
     full_response_content = []
     graph_data = None
     plan_data = None
@@ -44,10 +46,10 @@ async def stream_and_save_wrapper(chat_id: str, user_message: str, response_stre
                 continue 
 
     final_agent_message = "".join(full_response_content)
-    print("graph_data: ", graph_data)
+    logger.info("graph_data: ", graph_data)
 
     if final_agent_message:
-        print("saving chat message ...")
+        logger.info("saving chat message ...")
         save_chat_message(
             chat_id=chat_id, 
             user_message=user_message,

@@ -25,7 +25,7 @@ def _build_messages(history: List[str], question: str) -> List[Tuple[str,str]]:
         '  "augment": "질문이 모호할 때 최소 보충 한 줄(한국어)" | null,\n'
         '  "use_t2s": true | false,\n'
         '  "use_web": true | false,\n'
-        '  "web_source": List[Literal["supabase_marketing" | "supabase_beauty" | "tavily"]],\n'
+        '  "web_source": Literal["supabase_marketing" | "supabase_beauty" | "tavily"],\n'
         '  "need_visual": true | false\n'
         "}\n"
         "규칙:\n"
@@ -38,11 +38,11 @@ def _build_messages(history: List[str], question: str) -> List[Tuple[str,str]]:
     )
     fewshot = [
         ("human", json.dumps({"history":["채널별로도 봤고"], "question":"지난 1년간 연령대별 방문수 추이 보여줘"}, ensure_ascii=False)),
-        ("ai", json.dumps({"mode":"pass","augment":None,"use_web":False,"need_visual":True}, ensure_ascii=False)),
+        ("ai", json.dumps({"mode":"pass","augment":None,"use_t2s":True,"use_web":False,"need_visual":True}, ensure_ascii=False)),
         ("human", json.dumps({"history":["신규 유입이 줄었어"], "question":"채널 성과 좀 보여줘"}, ensure_ascii=False)),
-        ("ai", json.dumps({"mode":"augment","augment":"최근 30일 기준, 채널별 핵심 지표만 간단 비교해줘","use_web":False,"need_visual":False}, ensure_ascii=False)),
+        ("ai", json.dumps({"mode":"augment","augment":"최근 30일 기준, 채널별 핵심 지표만 간단 비교해줘","use_t2s":True,"use_web":False,"need_visual":False}, ensure_ascii=False)),
         ("human", json.dumps({"history":["여름 캠페인 준비"], "question":"뷰티 인플루언서 트렌드 핵심 키워드 알려줘"}, ensure_ascii=False)),
-        ("ai", json.dumps({"mode":"pass","augment":None,"use_web":True,"need_visual":False}, ensure_ascii=False)),
+        ("ai", json.dumps({"mode":"pass","augment":None,"use_t2s":False,"use_web":True,"need_visual":False}, ensure_ascii=False)),
     ]
     user = ("human", json.dumps({"history": history[-2:], "question": question}, ensure_ascii=False))
     return [("system", system), *fewshot, user]
@@ -67,5 +67,5 @@ def qa_plan_node(state: AgentState) -> AgentState:
         return {"qa_plan": out}
     except Exception:
         logger.exception("[qa_route_node] 실패 → pass-through 기본")
-        out = QAPlan(mode="pass", augment=None, use_web=False, need_visual=True)
+        out = QAPlan(mode="pass", augment=None, use_t2s=True, use_web=False, need_visual=True)
         return {"qa_plan": out}

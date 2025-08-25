@@ -17,6 +17,7 @@ def crewAI_sql_generator(message, schema_info, LLM_MODEL="gemini/gemini-2.5-flas
             "질문 속 인구통계, 시간, 지역, 행동 필터 조건을 정확히 파악하고, "
             "지표(예: 구매 수, 매출 합계 등)를 기반으로 JSON 명세로 구조화하세요. "
             "특히 '누가', '무엇을', '얼마나', '언제' 등을 놓치지 마세요."
+            f"주어진 데이터베이스 스키마 정보를 반드시 참고해야 합니다.\n\n--- 스키마 정보 ---\n{schema_info}"
         ),
         verbose=False,
         llm=llm

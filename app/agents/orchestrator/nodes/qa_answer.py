@@ -77,6 +77,7 @@ def qa_build_answer_node(state: AgentState) -> AgentState:
             "table_preview": _preview_rows(table, n=10),
             "snapshot_notes": "; ".join(snapshot.get("notes", [])),
         }).content.strip()
+        
     except Exception as e:
         logger.exception("[qa_build_answer_node] LLM 요약 실패: %s", e)
         llm_text = ""

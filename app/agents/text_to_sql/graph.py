@@ -1,11 +1,11 @@
 import pandas as pd 
 import logging
 from sqlalchemy import text, create_engine
-from pandas.api.types import is_datetime64_any_dtype
 
 from langgraph.graph import StateGraph, END
 
 from app.core.config import settings 
+from app.core.data_utils import normalize_table_data, create_empty_table
 from .crew import crewAI_sql_generator
 from .state import *
 
@@ -29,32 +29,11 @@ def call_sql(state: SQLState):
     try:
         engine = create_engine(state.conn_str, pool_pre_ping=True)
 
-        # 실행
+        # SQL 실행
         df = pd.read_sql_query(state.query, engine)
 
-        # 멀티컬럼 방어
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ["__".join(map(str, c)).strip() for c in df.columns.values]
-
-        # 날짜 컬럼 ISO 문자열화
-        for col in df.columns:
-            try:
-                if is_datetime64_any_dtype(df[col]):
-                    df[col] = df[col].dt.strftime("%Y-%m-%dT%H:%M:%S")
-            except Exception:
-                pass
-
-        # NaN/NaT -> None (JSON null)
-        df = df.where(pd.notnull(df), None)
-
-        # 미리보기만 담고 전체 행수는 별도 기입
-        preview = df.head(MAX_ROWS)
-
-        state.data_json = {
-            "rows": preview.to_dict(orient="records"),     # ✅ [{col:val}, ...]
-            "columns": [str(c) for c in preview.columns],  # ✅ 열 이름
-            "row_count": int(df.shape[0]),                 # ✅ 전체 행 수
-        }
+        # 공통 유틸리티로 데이터 정규화
+        state.data_json = normalize_table_data(df, MAX_ROWS)
 
         logger.info(
             "SQL 실행 성공 | row_count=%s, columns=%s",
@@ -66,8 +45,8 @@ def call_sql(state: SQLState):
 
     except Exception as e:
         # 실패해도 data_json은 동일 스키마로 채워서 downstream이 깨지지 않게
-        state.data_json = {"rows": [], "columns": [], "row_count": 0, "error": str(e)}
-        state.error = e
+        state.data_json = create_empty_table(str(e))
+        state.error = str(e)
         state.tried = getattr(state, "tried", 0) + 1
         logger.error(f"SQL 실행 실패:{e}")
 
@@ -82,10 +61,12 @@ def call_sql(state: SQLState):
     return state
     
 def check_table(state: SQLState): 
-    if state.error is None or  state.tried > 2: 
+    if state.error is None and state.data_json and state.data_json.get("row_count", 0) > 0:
         return "next"
-    else: 
+    elif state.tried < 3:  # 최대 3번 재시도
         return "redo"
+    else:
+        return "next"  # 실패해도 다음으로 진행
 
 # --- Graph --- 
 workflow = StateGraph(SQLState)
