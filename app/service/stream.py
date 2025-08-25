@@ -3,8 +3,8 @@ import logging
 from collections import deque
 from typing import AsyncGenerator, Dict, Any
 
-from app.agents_v2.orchestrator.state import AgentState, PromotionSlots
-from app.agents_v2.orchestrator.graph import orchestrator_app
+from app.agents.orchestrator.state import AgentState, PromotionSlots
+from app.agents.orchestrator.graph import orchestrator_app
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def stream_agent_v2(
     promotion_slots: Dict[str, Any] = None
 ) -> AsyncGenerator[str, None]:
     """
-    agents_v2를 위한 스트리밍 에이전트
+    agents를 위한 스트리밍 에이전트
     
     Args:
         chat_id: 채팅 ID

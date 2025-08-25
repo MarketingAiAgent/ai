@@ -1,6 +1,6 @@
 import logging 
 
-from app.agents_v2.orchestrator.state import AgentState
+from app.agents.orchestrator.state import AgentState
 
 logger = logging.getLogger(__name__)
 

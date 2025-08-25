@@ -12,7 +12,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-from app.agents_v2.orchestrator.state import AgentState, PromotionSlots 
+from app.agents.orchestrator.state import AgentState, PromotionSlots 
 
 # ===== prompt =====
 def _build_messages(history: List[str], current: str) -> List[tuple]:

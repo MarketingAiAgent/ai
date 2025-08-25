@@ -11,7 +11,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import AgentState, PromotionSlots, OptionToolPlans, ToolChoice, OptionPlanningNote, SQLPlan, OptionWebPlan, AllowedSources
+from app.agents.orchestrator.state import AgentState, PromotionSlots, OptionToolPlans, ToolChoice, OptionPlanningNote, SQLPlan, OptionWebPlan, AllowedSources
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ def _build_messages(history: List[str], slots: PromotionSlots) -> List[tuple]:
     """
     이 노드는 '사고 → 실행 인스트럭션'을 만든다.
     - 컬럼명/테이블명 강제 금지 (T2S가 스키마로 스스로 선택)
-    - 단, downstream 연결을 위해 출력 표의 첫 컬럼 이름만 `name`으로 요구 (표시용 타겟명)
     - 사람이 읽을 설명용 텍스트 컬럼 `rationale`은 가능하면 포함(없으면 비워도 허용)
     """
     history = (history or [])[-4:]

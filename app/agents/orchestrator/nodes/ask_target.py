@@ -12,7 +12,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import PromotionSlots, AgentState, OptionCandidate, AskTargetOutput
+from app.agents.orchestrator.state import PromotionSlots, AgentState, OptionCandidate, AskTargetOutput
 
 logger = logging.getLogger(__name__)
 ScopeLiteral = Literal["브랜드", "제품"]

@@ -9,6 +9,9 @@ from langgraph.graph import StateGraph, END
 from google import genai
 from google.genai import types as genai_types
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .state import VisualizeState
 from app.core.config import settings
@@ -61,36 +64,9 @@ VISUALIZER_PROMPT = ('''
 3.  차트 유형에 맞게 **X축/Y축 또는 라벨/값에 가장 적절한 컬럼을 자동으로 선택**해주세요.
 4.  차트 제목은 사용자의 질문과 데이터 내용을 반영하여 적절하게 생성해주세요.
 5.  축 라벨도 컬럼의 의미에 맞게 적절하게 지정해주세요.
-6. 생성된 차트(`fig`)를 `fig.to_json()`으로 JSON 문자열로 변환한 후, `json.loads` 및 `json.dumps(indent=2)`를 사용하여 예쁘게 만든 JSON을 {name}_chart.json 파일명으로 저장하는 코드까지 포함해주세요.
-⚠️ x축이 월, 요일 등 범주형 데이터일 경우 `fig.update_layout(xaxis_type="category")`를 반드시 추가하여 자동 축 왜곡을 방지해주세요.
+6.  x축이 월, 요일 등 범주형 데이터일 경우 `fig.update_layout(xaxis_type="category")`를 반드시 추가하여 자동 축 왜곡을 방지해주세요.
 7.  모든 코드를 하나의 파이썬 코드 블록(` ```python `)으로 감싸서 반환해주세요.
 8.  어떤 SQL 쿼리가 들어오든 **항상** 시각화 코드를 생성하려고 시도해주세요. 만약 시각화에 적합하지 않은 데이터라고 판단되면, 왜 그런지 간략히 주석으로 설명하고 간단한 테이블 출력 코드라도 생성해주세요.
-''')
-
-EXPLAINER_PROMPT = ('''
-You are a data analysis assistant for a marketing team.
-
-Your job is to explain the meaning of a data analysis result in clear, natural language.
-Your explanation will be shown to a marketer who asked the original question.
-
-Please use the following inputs:
-- User's question: {question}
-- instruction upon plotting graph: {instruction}
-- Data values:
-{data}
-- plotly graph: 
-{json_graph}
-
-Based on the above, write a short, helpful answer to the User's question based on what the data shows.
-Focus on **key trends**, **extreme values**, or **insightful comparisons**.
-
-Answer in Korean.
-
-Example:
-Q: 가장 캠페인이 효과적이었던 요일이 언제였어?
-A: 아래 차트는 요일별 전환율을 보여줍니다. 분석 결과, 토요일이 평균 전환율이 가장 높아 가장 효과적인 요일로 나타났습니다.
-
-Now write the explanation:
 ''')
 
 # ===== Nodes =====
@@ -105,6 +81,7 @@ def node_visualize(st: VisualizeState, llm) -> VisualizeState:
     gen_code = llm.generate(prompt)
     if not gen_code or not str(gen_code).strip():
         st.error = "LLM이 시각화 코드를 반환하지 않았습니다."
+        logger.error(f"LLM이 시각화 코드를 반환하지 않았습니다. {gen_code}")
         return st
 
     code = (
@@ -138,33 +115,14 @@ def node_visualize(st: VisualizeState, llm) -> VisualizeState:
     if fig is None:
         for v in exec_env.values():
             if isinstance(v, go.Figure):
-                fig = v; break
+                fig = v
+                break
     if fig is None:
         st.error = "Plotly Figure 를 찾지 못했습니다."
         return st
 
-    st.json_graph = fig.to_json()
-
-    fig = exec_env.get("fig")
-    if fig is None:
-        for v in exec_env.values():
-            if isinstance(v, go.Figure):
-                fig = v; break
-    if fig is None:
-        st.error = "Plotly Figure 를 찾지 못했습니다."
-        return st
-    
     st.json_graph = fig.to_json()
     st.error = ""
-    return st
-
-def node_explain(st: VisualizeState, llm) -> VisualizeState:
-    st.output = llm.generate(EXPLAINER_PROMPT.format(
-        question=st.user_question,
-        instruction=st.instruction,
-        data=st.json_data,
-        json_graph = st.json_graph
-    ))
     return st
 
 # ===== graph ======
@@ -173,10 +131,8 @@ def build_visualize_graph(model: str):
     g = StateGraph(VisualizeState)
 
     g.add_node("visualize", lambda s: node_visualize(s, llm))
-    g.add_node("explain", lambda s: node_explain(s, llm))
 
     g.set_entry_point("visualize")
-    g.add_edge('visualize', 'explain')
-    g.add_edge('explain', END)
+    g.add_edge('visualize', END)
 
     return g.compile()

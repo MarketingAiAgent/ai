@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
-from app.agents_v2.orchestrator.state import AgentState
+from app.agents.orchestrator.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ ANSWER_PROMPT = """
 {table_preview}
 
 [외부 트렌드/참고 메모]
-{snapshot_notes}
+{web_row}
 
 규칙:
 1) 표가 존재하면 표 기반 핵심 결론 2~3개를 한 문장씩 요약합니다.
@@ -60,19 +60,9 @@ def _sources_from_snapshot(snapshot: Dict[str, Any]) -> List[Dict[str, str]]:
 
 # ---- Node ----
 def qa_build_answer_node(state: AgentState) -> AgentState:
-    """
-    입력 (있을 수 있는 키):
-      - user_message: str
-      - qa_table: {{rows, columns, row_count}}
-      - qa_chart: str (Plotly JSON)
-      - qa_snapshot: {{notes: [..], sources: [...]}}
-
-    출력:
-      state.response = 최종 답변 텍스트
-    """
     question: str = state.user_message or ""
     table: Dict[str, Any] = state.qa_table or {}
-    snapshot: Dict[str, Any] = state.qa_snapshot or {}
+    snapshot: Dict[str, Any] = state.qa_web_row or {}
     chart_json: Optional[str] = state.qa_chart
 
     try:

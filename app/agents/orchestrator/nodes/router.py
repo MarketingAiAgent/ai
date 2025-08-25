@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from typing import List, Dict, Literal
 import json
-from app.agents_v2.orchestrator.state import AgentState
+from app.agents.orchestrator.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,9 @@ def router_node(state: AgentState) -> AgentState:
         result: RouterOutput = (llm | parser).invoke(messages)
         logger.info(f"결과: {result.intent}")
         logger.info(f"===== 🤔 라우터 수립 노드 실행 완료 =====")
-        return state.model_copy(update={"intent": result.intent})
+        return {"intent": result.intent}
 
     except Exception as e:
         logger.error(f"===== 🤔 라우터 수립 노드 실행 중 오류 발생 =====")
         logger.error(f"오류 내용: {e}")
-        return state.model_copy(update={"intent": "Out-of-scope"})
+        return {"intent": "Out-of-scope"}
