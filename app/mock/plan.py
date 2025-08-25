@@ -2,7 +2,7 @@ from app.schema.chat import CreateBrandPlanResponse, CreateCategoryPlanResponse
 from app.database.plans import create_plan
 import uuid
 
-def mock_create_plan(return_type, company):
+def mock_create_plan(return_type, company, user_id):
     plan_id = uuid.uuid4().hex
     if return_type == "brand":
         plan_content = {
@@ -26,6 +26,6 @@ def mock_create_plan(return_type, company):
         }
         response = CreateCategoryPlanResponse(**plan_content)
 
-    create_plan(plan_id, company, return_type, plan_content)
+    create_plan(plan_id, user_id, company, return_type, plan_content)
     
     return response

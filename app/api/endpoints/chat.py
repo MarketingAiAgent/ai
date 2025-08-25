@@ -75,11 +75,11 @@ def create_plan(request: CreatePlanRequest):
     chat_id = request.chat_id 
     active_state = get_or_create_state(chat_id=chat_id)
 
-    return_type = active_state['target_type']
+    return_type = active_state.get('target_type', 'brand')
     if return_type != "brand" and return_type != "category":
         return_type = 'brand'
 
-    return mock_create_plan(return_type, request.company)
+    return mock_create_plan(return_type, request.company, request.user_id)
 
     # if active_tast.status == "in_progress":
     #     raise HTTPException(

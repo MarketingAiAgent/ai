@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 # --- Pydantic 모델 (데이터 검증 및 구조화용) ---
 class PromotionSlots(BaseModel):
     objective: Optional[str] = Field(None, description="사용자가 정의한 이 프로모션으로 이루고자 하는 것")
-    target_type: Optional[Literal["brand_target", "category_target"]] = Field(None, description="프로모션의 타겟 종류")
+    target_type: Optional[Literal["brand", "category"]] = Field(None, description="프로모션의 타겟 종류")
     target: Optional[str] = Field(None, description="프로모션 타겟 고객")
     product_options: List[str] = Field(default_factory=list, description="사용자에게 제안할 상품 후보 목록")
     selected_product: List[str] = Field([], description="사용자가 최종 선택한 프로모션 상품")
