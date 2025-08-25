@@ -103,13 +103,13 @@ def beauty_youtuber_trend_search(question: str, summarize: bool = True) -> Dict[
 
 # ----- executors (플래너 지시사항만 실행) -----
 
-def execute_web_from_plan(use_source, question) -> List[Dict[str, str]]:
+def execute_web_from_plan(use_source, question) -> Dict[str, Any]:
     """
     web_plan: WebPlan BaseModel
-    반환: [{"name": str, "signal": str, "source": str}]
+    반환: {"name": str, "signal": str, "source": str}
     """
     if not use_source:
-        return []
+        return {}
 
     top_k = 3
     scrape_k = 0
@@ -117,17 +117,17 @@ def execute_web_from_plan(use_source, question) -> List[Dict[str, str]]:
     doc = None
 
     if use_source == "supabase_marketing":
-        mk = marketing_trend_search(q)
+        mk = marketing_trend_search(question)
         for r in (mk.get("results", [])):
             doc = {"title": r.get("title", ""), "url": "", "content": (r.get("chunk_text") or r.get("text") or "")}
 
     elif use_source == "supabase_beauty":
-        yt = beauty_youtuber_trend_search(q, summarize=False)
+        yt = beauty_youtuber_trend_search(question, summarize=False)
         for r in (yt.get("results", [])):   
             doc = {"title": r.get("title", ""), "url": "", "content": (r.get("chunk_text") or r.get("text") or "")}
 
     elif use_source == "tavily" and scrape_k > 0:
-        web = run_tavily_search(q, max_results=max(5, top_k * 2))
+        web = run_tavily_search(question, max_results=max(5, top_k * 2))
         for r in (web.get("results", [])):
             doc = {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")}
         if scrape_k > 0:
@@ -137,13 +137,10 @@ def execute_web_from_plan(use_source, question) -> List[Dict[str, str]]:
                 for d in (scraped.get("documents", [])):
                     doc = {"title": d.get("source", ""), "url": "", "content": d.get("content", "")}
 
-    out: List[Dict[str, str]] = []
-
     title = (doc.get("title", "")).strip()
     content = (doc.get("content", "")).strip()
-    source = (doc   .get("url", "")).strip()
+    source = (doc.get("url", "")).strip()
     name = title or (content[:40] + "…") if content else "untitled"
     signal = content[:180] + ("…" if len(content) > 180 else "")
-    out.append({"name": name, "signal": signal, "source": source})
-
-    return out[: max(1, top_k * 2)]
+    
+    return {"name": name, "signal": signal, "source": source}

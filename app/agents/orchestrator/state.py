@@ -23,7 +23,6 @@ class PlanningNote(BaseModel):
     why_t2s: Optional[str] = None
     why_web: Optional[str] = None
 
-  
 
 # ===== 프로모션 옵션 관련 State =====
 
@@ -116,7 +115,7 @@ class PromotionSlots(BaseModel):
 
     scope: Optional[Scope] = Field(
         default=None,
-        description="브랜드 | 제품",
+        description="brand | category",
     )
     period: Optional[str] = Field(
         default=None,
@@ -167,6 +166,7 @@ class PromotionSlots(BaseModel):
         return "RECAP_CONFIRM", []
 
 # ===== Main State =====
+
 class AgentState(BaseModel):
     model_config = ConfigDict(extra="allow")
     

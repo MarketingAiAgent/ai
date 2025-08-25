@@ -128,11 +128,16 @@ def get_chat_history(chat_id: str, limit: int = 10):
         ).sort("timestamp", DESCENDING).limit(limit)
 
         recent_messages = list(messages_cursor)
-        recent_messages.reverse()
+        formatted_messages = []
+        for message in recent_messages:
+            if message is not None:  # ✅ None 체크
+                formatted_messages.append({
+                    "speaker": message.get("speaker", "ai"),
+                    "content": message.get("content", "")
+                })
 
         logger.info(f"✅ Fetched {len(recent_messages)} messages for chat_id '{chat_id}'.")
-        return recent_messages
-
+        return formatted_messages
 
     except Exception as e:
         logger.error(f"❌ 채팅 기록 조회 중 오류가 발생했습니다: {e}")
