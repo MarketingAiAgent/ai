@@ -32,6 +32,8 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
     }
     
     NODE_NAME_MAP = {
+        "generate_sql": "SQL 생성 중...",
+        "make_table": "테이블 생성 중...",
         "planner": "응답 계획 수립 중...",
         "slot_extractor": "프로모션 구성 시작...",
         "action_state": "다음 행동 선택 중...",

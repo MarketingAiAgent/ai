@@ -38,7 +38,6 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
         "target": getattr(slots, 'target', None) or "미정",
         "objective": getattr(slots, 'objective', None) or "미정", 
         "duration": getattr(slots, 'duration', None) or "미정",
-        "budget": getattr(slots, 'budget', None) or "미정"
     }
     
     # 상위 20개 정도만 LLM에 전달 (토큰 제한 고려)
@@ -52,7 +51,6 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
 - 타겟 고객층: {promotion_context['target']}  
 - 목표: {promotion_context['objective']}
 - 기간: {promotion_context['duration']}
-- 예산: {promotion_context['budget']}
 
 **내부 데이터베이스 분석 결과 (상위 20개):**
 {json.dumps(top_rows, ensure_ascii=False, indent=2)}
@@ -227,10 +225,15 @@ def slot_extractor_node(state: OrchestratorState):
 def _planner_router(state: OrchestratorState) -> str:
     instr = state.get("instructions")
     if not instr:
-        return "tool_executor"
+        logger.warning("⚠️ instructions가 None입니다. planner_node에서 에러 발생했을 가능성 높음")
+        logger.warning("상태 정보: user_message='%s'", state.get('user_message', 'N/A')[:100])
+        return "response_generator"
         
     resp = (instr.response_generator_instruction or "").strip()
+    logger.info("라우팅 결정 중: response_instruction='%s'", resp[:50])
+    
     if resp.startswith("[PROMOTION]"):
+        logger.info("→ 프로모션 플로우: slot_extractor")
         return "slot_extractor"
     
     # 트렌드 적용 상태인지 확인
@@ -238,11 +241,14 @@ def _planner_router(state: OrchestratorState) -> str:
     action = tr.get("action") or {}
     if action.get("status") == "apply_trends":
         # 트렌드 반영을 위한 외부 데이터 수집 툴 자동 호출
+        logger.info("→ 트렌드 적용 상태: action_state")
         return "action_state"  # action_state -> tool_executor로 라우팅됨
         
     if instr.tool_calls and len(instr.tool_calls) > 0:
+        logger.info("→ 툴 호출 필요: tool_executor (%d개 툴)", len(instr.tool_calls))
         return "tool_executor"
         
+    logger.info("→ 응답 생성: response_generator")
     return "response_generator"
 
 def trend_planner_node(state: OrchestratorState):
@@ -289,20 +295,25 @@ def trend_planner_node(state: OrchestratorState):
 
 def planner_node(state: OrchestratorState):
     logger.info("--- 🤔 계획 수립 노드 실행 ---")
+    logger.info("입력 상태: user_message='%s', active_task=%s", 
+                state.get('user_message', 'N/A')[:100], 
+                bool(state.get('active_task')))
     
-    # 트렌드 반영 상태인지 확인
-    tr = state.get("tool_results") or {}
-    action = tr.get("action") or {}
-    if action.get("status") == "apply_trends":
-        return trend_planner_node(state)
+    try:
+        # 트렌드 반영 상태인지 확인
+        tr = state.get("tool_results") or {}
+        action = tr.get("action") or {}
+        if action.get("status") == "apply_trends":
+            logger.info("트렌드 반영 상태 감지, trend_planner_node로 전환")
+            return trend_planner_node(state)
 
-    parser = PydanticOutputParser(pydantic_object=OrchestratorInstruction)
-    history_summary = summarize_history(state.get("history", []))
-    active_task_dump = state['active_task'].model_dump_json() if state.get('active_task') else 'null'
-    schema_sig = state.get("schema_info", "")
-    today = today_kr()
+        parser = PydanticOutputParser(pydantic_object=OrchestratorInstruction)
+        history_summary = summarize_history(state.get("history", []))
+        active_task_dump = state['active_task'].model_dump_json() if state.get('active_task') else 'null'
+        schema_sig = state.get("schema_info", "")
+        today = today_kr()
 
-    prompt_template = textwrap.dedent("""
+        prompt_template = textwrap.dedent("""
     You are the orchestrator for a marketing agent. Decide what to do this turn using ONLY the provided context.
     You MUST output a JSON that strictly follows: {format_instructions}
 
@@ -371,32 +382,53 @@ def planner_node(state: OrchestratorState):
     User Message: "{user_message}"
     """)
 
-    prompt = ChatPromptTemplate.from_template(
-        template=prompt_template,
-        partial_variables={"format_instructions": parser.get_format_instructions()}
-    )
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        temperature=0,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        api_key=settings.GOOGLE_API_KEY
-    )
+        prompt = ChatPromptTemplate.from_template(
+            template=prompt_template,
+            partial_variables={"format_instructions": parser.get_format_instructions()}
+        )
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0,
+            model_kwargs={"response_format": {"type": "json_object"}},
+            api_key=settings.GOOGLE_API_KEY
+        )
 
-    instructions = (prompt | llm | parser).invoke({
-        "user_message": state['user_message'],
-        "history_summary": history_summary,
-        "active_task": active_task_dump,
-        "schema_sig": schema_sig,
-        "today": today,
-    })
+        logger.info("LLM 호출 중...")
+        instructions = (prompt | llm | parser).invoke({
+            "user_message": state['user_message'],
+            "history_summary": history_summary,
+            "active_task": active_task_dump,
+            "schema_sig": schema_sig,
+            "today": today,
+        })
 
-    return {"instructions": instructions}
+        logger.info("✅ 계획 수립 성공: tool_calls=%s, response_instruction=%s", 
+                   len(instructions.tool_calls or []), 
+                   instructions.response_generator_instruction[:100] if instructions.response_generator_instruction else 'N/A')
+        return {"instructions": instructions}
+        
+    except Exception as e:
+        logger.error("❌ 계획 수립 실패: %s", e, exc_info=True)
+        logger.error("에러 타입: %s", type(e).__name__)
+        logger.error("사용자 메시지: %s", state.get('user_message', 'N/A'))
+        logger.error("히스토리 길이: %d", len(state.get('history', [])))
+        
+        # 폴백 instructions 생성
+        fallback_instructions = OrchestratorInstruction(
+            tool_calls=None,
+            response_generator_instruction="죄송합니다. 일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+        )
+        logger.info("폴백 instructions 생성 완료")
+        return {"instructions": fallback_instructions}
 
 def action_state_node(state: OrchestratorState):
     logger.info("--- 📋 액션 상태 확인 노드 실행 ---")
-    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else None
+    active_task = state.get("active_task")
+    slots = active_task.slots if active_task and active_task.slots else None
+    logger.info("입력: active_task=%s, slots=%s", bool(active_task), slots.model_dump() if slots else None)
+    
     decision = get_action_state(slots=slots)
-    logger.info("Action decision: %s", decision)
+    logger.info("✅ Action decision: %s", decision)
     return {"tool_results": {"action": decision}}
 
 def _action_router(state: OrchestratorState) -> str:
@@ -717,10 +749,21 @@ def _parse_knowledge_calls(instr: Optional[Union[str, List[Dict[str, Any]], Dict
 def tool_executor_node(state: OrchestratorState):
     logger.info("--- 🔨 툴 실행 노드 실행 ---")
     instructions = state.get("instructions")
-    tool_calls = instructions.tool_calls if instructions and instructions.tool_calls else []
+    
+    if not instructions:
+        logger.warning("⚠️ instructions가 None입니다!")
+        logger.warning("이전 노드에서 에러가 발생했을 가능성이 높습니다.")
+        logger.warning("사용자 메시지: %s", state.get('user_message', 'N/A')[:100])
+        return {"tool_results": {"error": "No instructions provided"}}
+    
+    tool_calls = instructions.tool_calls if instructions.tool_calls else []
+    logger.info("instructions 정보: response_instruction='%s', tool_calls_count=%d", 
+               instructions.response_generator_instruction[:100] if instructions.response_generator_instruction else 'N/A',
+               len(tool_calls))
 
     if not tool_calls:
         logger.info("실행할 툴이 없습니다.")
+        logger.info("instructions.tool_calls: %s", tool_calls)
         return {"tool_results": None}
 
     tool_map = {
@@ -739,14 +782,16 @@ def tool_executor_node(state: OrchestratorState):
             tool_name = call.get("tool")
             tool_args = call.get("args", {})
 
-            logger.info(f"🧩 {tool_name} 실행")
+            logger.info(f"🧩 {tool_name} 실행 - args: {tool_args}")
             
             if tool_name in tool_map:
                 result_key = f"{tool_name}_{i}"
                 future = executor.submit(tool_map[tool_name], tool_args)
                 future_to_call[future] = result_key
+                logger.info(f"✅ {tool_name} 제출 완료 (result_key: {result_key})")
             else:
-                logger.warning(f"알 수 없는 도구 '{tool_name}' 호출은 건너뜁니다.")
+                logger.warning(f"❌ 알 수 없는 도구 '{tool_name}' 호출은 건너뜁니다.")
+                logger.warning(f"사용 가능한 도구: {list(tool_map.keys())}")
         
         for future in future_to_call:
             result_key = future_to_call[future]
@@ -754,15 +799,25 @@ def tool_executor_node(state: OrchestratorState):
             try:
                 result = future.result()
                 tool_results[result_key] = result
+                logger.info(f"✅ {result_key} 실행 완료")
+                # 결과 요약 로깅 (민감한 정보 제외)
+                if isinstance(result, dict):
+                    if 'rows' in result:
+                        logger.info(f"  → {result_key} 데이터: {len(result.get('rows', []))}행")
+                    elif 'results' in result:
+                        logger.info(f"  → {result_key} 결과: {len(result.get('results', []))}건")
+                    elif 'error' in result:
+                        logger.warning(f"  → {result_key} 내부 에러: {result.get('error')}")
 
             except Exception as e:
-                logger.error(f"'{result_key}' 툴 실행 중 오류 발생: {e}")
+                logger.error(f"❌ '{result_key}' 툴 실행 중 오류 발생: {e}", exc_info=True)
                 tool_results[result_key] = {"error": str(e)}
 
-
+    logger.info(f"툴 실행 완료: {len(tool_results)}개 결과")
     existing_results = state.get("tool_results") or {}
     merged_results = {**existing_results, **tool_results}
     
+    logger.info(f"최종 tool_results 키: {list(merged_results.keys())}")
     return {"tool_results": merged_results}
 
 def _should_visualize_router(state: OrchestratorState) -> str:
@@ -897,9 +952,11 @@ def promotion_final_generator(state: OrchestratorState, action_decision: dict, t
     return final_response
 
 def response_generator_node(state: OrchestratorState):
-    logger.info("--- 🗣️ 응답 생성 노드 ---")
+    logger.info("--- 🗣️ 응답 생성 노드 실행 ---")
+    logger.info("입력: user_message='%s'", state.get('user_message', 'N/A')[:100])
     instructions = state.get("instructions")
     tr = state.get("tool_results") or {}
+    logger.info("instructions 존재: %s, tool_results 키: %s", bool(instructions), list(tr.keys()))
     
     action_decision = tr.get("action")
     
@@ -1056,12 +1113,14 @@ def response_generator_node(state: OrchestratorState):
         final_response += error_message
         logger.warning("Export 요청이지만 다운로드 URL이 없습니다.")
     
-    logger.info(f"최종 결과(L):\n{final_response}")
+    logger.info(f"✅ 응답 생성 완료 (길이: {len(final_response)}자)")
+    logger.info(f"최종 결과 미리보기: {final_response[:200]}...")
+    
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})
     history.append({"role": "assistant", "content": final_response})
     
-    # logger.info(f"{state}")
+    logger.info(f"히스토리 업데이트: 총 {len(history)}개 메시지")
     return {"history": history, "user_message": "", "output": final_response}
 
 # ===== Graph =====
@@ -1094,6 +1153,7 @@ workflow.add_conditional_edges(
     {
         "options_generator": "options_generator",
         "response_generator": "response_generator",
+        "tool_executor": "tool_executor",
     },
 )
 workflow.add_edge("options_generator", "response_generator")

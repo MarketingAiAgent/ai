@@ -17,7 +17,7 @@ def call_t2s_crew(state: SQLState):
     message = state.question 
     if state.error is not None: 
         message += f"\n\n**주의점** 지난 번 생성한 SQL에서는 다음과 같은 에러가 발생했습니다: \n{state.error}\n 같은 실수를 반복하지 마세요."
-    sql = crewAI_sql_generator(message=state.question, schema_info=state.schema_info)
+    sql = crewAI_sql_generator(message=message, schema_info=state.schema_info)
 
     state.query = text(sql)
     state.error = None
