@@ -34,7 +34,8 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
     # 컨텍스트 정보 준비
     promotion_context = {
         "target_type": getattr(slots, 'target_type', None) or "미정",
-        "brand": getattr(slots, 'brand', None) or "없음",
+        "focus": getattr(slots, 'focus', None) or "없음",
+        "target": getattr(slots, 'target', None) or "미정",
         "objective": getattr(slots, 'objective', None) or "미정", 
         "duration": getattr(slots, 'duration', None) or "미정",
         "budget": getattr(slots, 'budget', None) or "미정"
@@ -47,7 +48,8 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
 
 **현재 프로모션 기획 상황:**
 - 타겟 유형: {promotion_context['target_type']}
-- 지정 브랜드: {promotion_context['brand']}  
+- 포커스: {promotion_context['focus']}
+- 타겟 고객층: {promotion_context['target']}  
 - 목표: {promotion_context['objective']}
 - 기간: {promotion_context['duration']}
 - 예산: {promotion_context['budget']}
@@ -67,14 +69,19 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
    - "시장 트렌드 분석 결과..."로 시작하는 외부 트렌드 근거 (해당시)
    - 현재 프로모션 목표와의 연관성 (해당시)
 3. 비즈니스 관점에서 마케터가 이해하기 쉽게 설명하세요
+4. **타입 구분**: 
+   - 브랜드 프로모션: "type": "brand"
+   - 카테고리 프로모션 (카테고리 선택 단계): "type": "category"
+   - 카테고리 프로모션 (상품 선택 단계): "type": "product"
 
-다음 JSON 형태로 정확히 응답해주세요:
+**중요: 반드시 아래 JSON 형태로만 응답하세요. 마크다운, 설명, 코드펜스 등은 절대 포함하지 마세요.**
+
 {{
   "recommendations": [
     {{
       "rank": 1,
-      "name": "상품/브랜드명",
-      "type": "brand" 또는 "product" 또는 "category",
+      "name": "상품/브랜드/카테고리명",
+      "type": "{promotion_context['target_type']}",
       "id": "원본 데이터의 식별자",
       "reasons": [
         "내부 데이터베이스 분석 결과 구체적인 근거1",
@@ -118,6 +125,23 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
         except json.JSONDecodeError as e:
             logger.error("❌ LLM 응답 JSON 파싱 실패: %s", e)
             logger.error("응답 내용: %s", response.content[:500])
+            
+            # JSON 파싱 실패 시 응답에서 JSON 부분만 추출 시도
+            try:
+                content = response.content
+                # ```json과 ``` 사이의 내용 추출
+                if "```json" in content:
+                    start = content.find("```json") + 7
+                    end = content.find("```", start)
+                    if end > start:
+                        json_content = content[start:end].strip()
+                        result = json.loads(json_content)
+                        recommendations = result.get("recommendations", [])
+                        logger.info("✅ JSON 블록에서 추출 성공: %d개 추천", len(recommendations))
+                        return recommendations
+            except Exception as extract_error:
+                logger.error("❌ JSON 블록 추출도 실패: %s", extract_error)
+            
             return []
             
     except Exception as e:
@@ -155,9 +179,11 @@ def slot_extractor_node(state: OrchestratorState):
     - 존재하는 값만 채우고, 없으면 null로 두세요.
     - target_type은 "brand" 또는 "category" 중 하나로만.
     - 날짜/기간은 원문 그대로 문자열로 유지.
-    - brand: 사용자가 선택한 브랜드명 (예: "나이키", "아디다스")
+    - focus: 사용자가 선택한 브랜드명 또는 카테고리명 (예: "나이키", "스포츠웨어")
+    - target: 타겟 고객층 (예: "20대 남성", "직장인")
     - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
-    - 브랜드명과 상품명을 명확히 구분하세요. 브랜드는 brand 필드에, 구체적인 상품은 selected_product에 넣으세요.
+    - wants_trend: 트렌드 반영 여부 (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
+    - 브랜드/카테고리와 상품명을 명확히 구분하세요. 브랜드/카테고리는 focus 필드에, 구체적인 상품은 selected_product에 넣으세요.
     - 출력은 반드시 다음 JSON 스키마를 따르세요:
       {format_instructions}
 
@@ -177,6 +203,13 @@ def slot_extractor_node(state: OrchestratorState):
     parsed: PromotionSlotUpdate = (prompt | llm | parser).invoke({"user_message": user_message})
 
     updates = {k: v for k, v in parsed.model_dump().items() if v not in (None, "", [])}
+    
+    # target_type이 이미 설정되어 있으면 변경하지 않음
+    current_slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+    if current_slots.target_type and "target_type" in updates:
+        logger.info("target_type이 이미 설정됨 (%s), 변경 방지", current_slots.target_type)
+        del updates["target_type"]
+    
     if not updates:
         logger.info("슬롯 업데이트 없음")
         return {}
@@ -199,14 +232,69 @@ def _planner_router(state: OrchestratorState) -> str:
     resp = (instr.response_generator_instruction or "").strip()
     if resp.startswith("[PROMOTION]"):
         return "slot_extractor"
+    
+    # 트렌드 적용 상태인지 확인
+    tr = state.get("tool_results") or {}
+    action = tr.get("action") or {}
+    if action.get("status") == "apply_trends":
+        # 트렌드 반영을 위한 외부 데이터 수집 툴 자동 호출
+        return "action_state"  # action_state -> tool_executor로 라우팅됨
         
     if instr.tool_calls and len(instr.tool_calls) > 0:
         return "tool_executor"
         
     return "response_generator"
 
+def trend_planner_node(state: OrchestratorState):
+    """트렌드 반영을 위한 외부 데이터 수집 계획"""
+    logger.info("--- 🌟 트렌드 수집 계획 수립 노드 실행 ---")
+    
+    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+    
+    # 프로모션 정보를 바탕으로 트렌드 검색 쿼리 생성
+    search_queries = []
+    
+    # 기본 검색어 구성
+    base_query = f"{slots.focus or ''} {slots.target or ''} 프로모션 마케팅"
+    search_queries.append(base_query.strip())
+    
+    # 타겟별 트렌드 검색
+    if slots.target:
+        search_queries.append(f"{slots.target} 트렌드 유행어 밈")
+    
+    # 상품별 트렌드 검색  
+    if slots.selected_product:
+        for product in slots.selected_product[:2]:  # 최대 2개 상품만
+            search_queries.append(f"{product} 마케팅 트렌드")
+    
+    # 외부 데이터 수집 툴 호출 구성
+    tool_calls = [
+        {"tool": "tavily_search", "args": {"query": search_queries[0], "max_results": 5}},
+        {"tool": "marketing_trend_search", "args": {"question": f"{slots.focus} {slots.target} 프로모션 관련 최신 트렌드"}},
+    ]
+    
+    # 뷰티 관련이면 유튜버 트렌드도 추가
+    if any(keyword in (slots.focus or "").lower() for keyword in ["화장품", "뷰티", "코스메틱", "스킨케어"]):
+        tool_calls.append({
+            "tool": "beauty_youtuber_trend_search", 
+            "args": {"question": f"{slots.focus} 뷰티 트렌드"}
+        })
+    
+    return {
+        "instructions": OrchestratorInstruction(
+            tool_calls=tool_calls,
+            response_generator_instruction="트렌드 데이터를 수집하여 프로모션에 적용할 준비를 하고 있습니다."
+        )
+    }
+
 def planner_node(state: OrchestratorState):
     logger.info("--- 🤔 계획 수립 노드 실행 ---")
+    
+    # 트렌드 반영 상태인지 확인
+    tr = state.get("tool_results") or {}
+    action = tr.get("action") or {}
+    if action.get("status") == "apply_trends":
+        return trend_planner_node(state)
 
     parser = PydanticOutputParser(pydantic_object=OrchestratorInstruction)
     history_summary = summarize_history(state.get("history", []))
@@ -315,6 +403,7 @@ def _action_router(state: OrchestratorState) -> str:
     """
     action_state 결과로 다음 노드 결정:
     - brand/target을 묻거나, 특정 product를 물어야 하는 상황이면 options_generator로 분기
+    - 트렌드 반영이 필요하면 tool_executor로 분기
     - 그 외 (objective/duration 질문, 최종 확인 등)는 response_generator로 분기
     """
     tr = state.get("tool_results") or {}
@@ -322,14 +411,20 @@ def _action_router(state: OrchestratorState) -> str:
     status = action.get("status")
     missing = action.get("missing_slots", [])
 
-    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
+    # 트렌드 반영 상태일 때 외부 데이터 툴 호출
+    if status == "apply_trends":
+        return "tool_executor"
+    
+    # 최종 기획서 생성 상태
+    if status == "create_final_plan":
+        return "response_generator"
+
     # 'ask_for_product' 상태일 때 options_generator를 호출하도록 명시
     if status == "ask_for_product":
         return "options_generator"
-    # ------------------------------------
     
-    # 기존 로직: brand나 target을 물어야 할 때도 options_generator 호출
-    if status == "ask_for_slots" and any(m in ("brand", "target") for m in missing):
+    # 기존 로직: focus나 target을 물어야 할 때도 options_generator 호출
+    if status == "ask_for_slots" and any(m in ("focus", "target") for m in missing):
         return "options_generator"
         
     return "response_generator"
@@ -338,20 +433,21 @@ def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) ->
     end = datetime.now(ZoneInfo("Asia/Seoul")).date()
     start = end - timedelta(days=60)
     
-    # 브랜드 필터링 조건을 담을 변수
-    brand_filter_instruction = ""
-    if slots and slots.brand:
-        brand_filter_instruction = f" 또한, 결과는 반드시 '{slots.brand}' 브랜드의 제품만 포함해야 합니다."
+    # focus 필터링 조건을 담을 변수
+    focus_filter_instruction = ""
+    if slots and slots.focus:
+        focus_label = "브랜드" if target_type == "brand" else "카테고리"
+        focus_filter_instruction = f" 또한, 결과는 반드시 '{slots.focus}' {focus_label}의 제품만 포함해야 합니다."
  
     if target_type == "brand":
         # 브랜드가 이미 선택된 경우 해당 브랜드의 상품 목록을 반환
-        if slots and slots.brand:
+        if slots and slots.focus:
             return textwrap.dedent(f"""
-            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.brand}' 브랜드의 상품 레벨 후보 목록을 산출해 주세요.
+            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.focus}' 브랜드의 상품 레벨 후보 목록을 산출해 주세요.
             반드시 다음 컬럼 alias를 포함해야 합니다:
             - product_id
             - product_name
-            - brand_name (반드시 '{slots.brand}'이어야 함)
+            - brand_name (반드시 '{slots.focus}'이어야 함)
             - category_name
             - revenue (최근 기간 매출)
             - growth_pct (이전 동일기간 대비 증감율, %)
@@ -363,7 +459,7 @@ def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) ->
             - return_rate
             - price_band
             - gender_age
-            행은 상품별 1행입니다. '{slots.brand}' 브랜드의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
+            행은 상품별 1행입니다. '{slots.focus}' 브랜드의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
             """).strip()
         else:
             # 브랜드 선택 단계
@@ -386,29 +482,45 @@ def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) ->
             """).strip()
     else:
         # 카테고리 타입
-        if slots and slots.target:
-            category_filter = f" 또한, 결과는 반드시 '{slots.target}' 카테고리의 제품만 포함해야 합니다."
+        if slots and slots.focus:
+            # 특정 카테고리가 선택된 경우 해당 카테고리의 상품 목록
+            return textwrap.dedent(f"""
+            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.focus}' 카테고리의 상품 레벨 후보 목록을 산출해 주세요.
+            반드시 다음 컬럼 alias를 포함해야 합니다:
+            - product_id
+            - product_name
+            - category_name (반드시 '{slots.focus}'이어야 함)
+            - brand_name
+            - revenue (최근 기간 매출)
+            - growth_pct (이전 동일기간 대비 증감율, %)
+            - gm (최근 기간 총이익률, 0~1)
+            - conversion_rate
+            - repeat_rate
+            - aov
+            - inventory_days
+            - return_rate
+            - price_band
+            - gender_age
+            행은 상품별 1행입니다. '{slots.focus}' 카테고리의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
+            """).strip()
         else:
-            category_filter = ""
-            
-        return textwrap.dedent(f"""
-        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 카테고리/상품 레벨 후보 목록을 산출해 주세요.{category_filter}
-        가능한 경우 다음 컬럼 alias를 포함하세요:
-        - product_id
-        - product_name
-        - category_name
-        - revenue
-        - growth_pct
-        - gm
-        - conversion_rate
-        - repeat_rate
-        - aov
-        - inventory_days
-        - return_rate
-        - price_band
-        - gender_age
-        행은 상품(또는 카테고리)별 1행입니다. 최근 기간 매출 상위 200개 내에서 반환해 주세요.
-        """).strip()
+            # 카테고리 선택 단계 - 카테고리 레벨로 반환
+            return textwrap.dedent(f"""
+            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 카테고리 레벨 후보 목록을 산출해 주세요.
+            반드시 다음 컬럼 alias를 포함해야 합니다:
+            - category_name
+            - revenue (최근 기간 매출)
+            - growth_pct (이전 동일기간 대비 증감율, %)
+            - gm (최근 기간 총이익률, 0~1)
+            - conversion_rate
+            - repeat_rate
+            - aov
+            - inventory_days
+            - return_rate
+            - price_band
+            - gender_age
+            행은 카테고리별 1행입니다. 최근 기간 매출 상위 50개 카테고리를 반환해 주세요.
+            """).strip()
 
 def options_generator_node(state: OrchestratorState):
     logger.info("--- 🧠 옵션 제안 노드 실행 시작 ---")
@@ -474,10 +586,19 @@ def options_generator_node(state: OrchestratorState):
                 label = str(r.get("brand_name") or "알 수 없는 브랜드")
                 typ = "brand"
             else:
-                name = r.get("product_name") or r.get("category_name") or "알 수 없는 항목"
-                cid = f"product:{r.get('product_id') or name}"
-                label = str(name)
-                typ = "product" if r.get("product_name") else "category"
+                # 카테고리 타입일 때는 카테고리를 우선적으로 추천
+                if r.get("category_name") and not slots.focus:
+                    # 카테고리 선택 단계
+                    name = r.get("category_name")
+                    cid = f"category:{name}"
+                    label = str(name)
+                    typ = "category"
+                else:
+                    # 특정 카테고리가 선택된 경우 상품 추천
+                    name = r.get("product_name") or r.get("category_name") or "알 수 없는 항목"
+                    cid = f"product:{r.get('product_id') or name}"
+                    label = str(name)
+                    typ = "product" if r.get("product_name") else "category"
             
             labels.append(label)
             candidates.append({
@@ -489,6 +610,8 @@ def options_generator_node(state: OrchestratorState):
                 "reasons": r.get("reasons", []),
                 "diversity_tags": [x for x in (r.get("category_name"), r.get("price_band"), r.get("gender_age")) if x],
             })
+            
+            logger.info("  %d번 폴백 추천: %s (%s)", i+1, label, typ)
     else:
         logger.info("✅ LLM 추천 생성 성공 - %d개 추천", len(llm_recommendations))
         
@@ -512,7 +635,11 @@ def options_generator_node(state: OrchestratorState):
             if target_type == "brand":
                 cid = f"brand:{name}"
             else:
-                cid = f"product:{rec.get('id', name)}"
+                # 카테고리 타입일 때는 카테고리/상품 구분
+                if not slots.focus and rec.get("type") == "category":
+                    cid = f"category:{name}"
+                else:
+                    cid = f"product:{rec.get('id', name)}"
             
             labels.append(name)
             
@@ -697,11 +824,105 @@ def visualizer_caller_node(state: OrchestratorState):
         
     return {"tool_results": tool_results}
 
+def promotion_final_generator(state: OrchestratorState, action_decision: dict, tr: dict) -> dict:
+    """프로모션 최종 기획서 생성 (Claude-4-Sonnet 사용)"""
+    logger.info("--- 🎯 프로모션 최종 기획서 생성 (Claude-4-Sonnet) ---")
+    
+    slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+    
+    # 외부 데이터 수집 결과
+    web_search = None
+    marketing_trend_results = None
+    youtuber_trend_results = None
+    
+    for key, value in tr.items():
+        if key.startswith("tavily_search"): 
+            web_search = value
+        elif key.startswith("marketing_trend_search"):
+            marketing_trend_results = value
+        elif key.startswith("beauty_youtuber_trend_search"):
+            youtuber_trend_results = value
+    
+    # 트렌드 반영 여부에 따른 프롬프트 구성
+    has_trends = slots.wants_trend and (web_search or marketing_trend_results or youtuber_trend_results)
+    
+    prompt_tmpl = textwrap.dedent(f"""
+    당신은 마케팅 전략 전문가입니다. 아래 정보를 바탕으로 **완성도 높은 프로모션 기획서**를 작성해 주세요.
+    
+    ## 📋 프로모션 기본 정보
+    - 타겟 유형: {slots.target_type}
+    - 포커스: {slots.focus} 
+    - 타겟 고객층: {slots.target}
+    - 선택 상품: {', '.join(slots.selected_product) if slots.selected_product else '없음'}
+    - 기간: {slots.duration}
+    - 목표: {slots.objective or '매출 증대'}
+    
+    {"## 🌟 수집된 트렌드 정보" if has_trends else ""}
+    {f"### 웹 검색 결과: {web_search}" if web_search else ""}
+    {f"### 마케팅 트렌드: {marketing_trend_results}" if marketing_trend_results else ""}
+    {f"### 뷰티 트렌드: {youtuber_trend_results}" if youtuber_trend_results else ""}
+    
+    ## 🎯 작성 요구사항
+    1. **프로모션 개요** (2-3줄로 핵심 컨셉 요약)
+    2. **타겟 분석** (고객 특성과 니즈 분석)
+    3. **핵심 메시지** (브랜드 메시지와 소구점)
+    4. **실행 전략** (구체적인 마케팅 방법론)
+    {"5. **트렌드 활용** (수집된 트렌드를 어떻게 활용할지)" if has_trends else ""}
+    {"6." if has_trends else "5."} **예상 효과** (기대하는 성과와 KPI)
+    {"7." if has_trends else "6."} **실행 일정** (주요 마일스톤)
+    
+    ## 📝 작성 가이드라인
+    - 실무진이 바로 실행할 수 있는 구체적이고 실용적인 내용
+    - 데이터와 근거 기반의 전략적 사고
+    - 창의적이면서도 실현 가능한 아이디어
+    {"- 최신 트렌드를 자연스럽게 녹여낸 현대적 접근" if has_trends else ""}
+    - 한국어 존댓말로 전문적이고 세련된 톤앤매너
+    
+    완성도 높은 프로모션 기획서를 작성해 주세요.
+    """)
+    
+    # Claude-4-Sonnet 사용
+    llm = ChatAnthropic(
+        model="claude-3-5-sonnet-20241022", 
+        temperature=0.1,
+        api_key=settings.ANTHROPIC_API_KEY
+    )
+    
+    final_text = llm.invoke(prompt_tmpl)
+    final_response = getattr(final_text, "content", None) or str(final_text)
+    
+    logger.info("✅ Claude-4-Sonnet으로 프로모션 기획서 생성 완료")
+    logger.info(f"프로모션 기획서:\n{final_response}")
+    
+    return final_response
+
 def response_generator_node(state: OrchestratorState):
     logger.info("--- 🗣️ 응답 생성 노드 ---")
     instructions = state.get("instructions")
     tr = state.get("tool_results") or {}
+    
+    action_decision = tr.get("action")
+    
+    # 프로모션 최종 생성 상태들인지 확인
+    if action_decision and action_decision.get("status") in ["create_final_plan", "apply_trends"]:
+        final_response = promotion_final_generator(state, action_decision, tr)
+        
+        history = state.get("history", [])
+        history.append({"role": "user", "content": state.get("user_message", "")})
+        history.append({"role": "assistant", "content": final_response})
+        
+        # 프로모션 슬롯 정보도 함께 반환 (plan 데이터 생성용)
+        slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
+        
+        return {
+            "history": history, 
+            "user_message": "", 
+            "output": final_response,
+            "promotion_slots": slots.model_dump(),
+            "is_final_promotion": True
+        }
 
+    # 기존 로직 (Gemini 사용)
     instructions_text = (
         instructions.response_generator_instruction
         if instructions and instructions.response_generator_instruction
@@ -751,18 +972,23 @@ def response_generator_node(state: OrchestratorState):
 
     [작성 지침]
     1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (bra")
-    2) 위 1번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
-    3) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
+    2) **프로모션 완성 규칙**: 
+       - `action_decision`의 `status`가 "start_promotion"인 경우, 완성된 프로모션 슬롯 정보를 기반으로 프로모션 내용을 정리해서 보여주고, 마지막 문단에 반드시 "최신 트렌드나 유행어를 반영해서 프로모션을 만들길 원하시나요?"라고 질문하세요.
+       - `action_decision`의 `status`가 "create_final_plan"인 경우, 트렌드 반영 없이 완성된 프로모션 기획서를 제작하세요.
+       - `action_decision`의 `status`가 "apply_trends"이고 외부 데이터가 있는 경우, 수집된 트렌드를 반영한 최종 프로모션 기획서를 제작하세요.
+       - **중요**: 사용자가 이미 트렌드 반영 여부에 대해 답변했다면 (wants_trend가 true/false로 설정됨), 같은 질문을 다시 하지 마세요.
+    3) 위 1,2번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
+    4) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)
        - `llm_reasons`가 없으면 기존 `reasons`, `business_reasons` 등을 사용하세요
        - 모든 수치는 어떤 수치인지 구체적인 언급을 해주세요
        - 마지막에 '기타(직접 입력)'도 추가합니다    
-    4) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
-    5) t2s_table 처리 규칙:
+    5) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
+    6) t2s_table 처리 규칙:
        - output_type이 "export"인 경우: 표나 시각화를 포함하지 말고, 데이터 준비가 완료되었음을 안내하세요. 다운로드 링크는 시스템에서 자동으로 추가됩니다.
        - output_type이 "table"인 경우: 상위 10행 미리보기 표만 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
        - output_type이 "visualize"인 경우: 상위 10행 미리보기 표를 포함하고, 시각화 결과가 있다면 함께 제공하세요.
-    6) 전체적으로 구조화된 형식을 유지하세요.
+    7) 전체적으로 구조화된 형식을 유지하세요.
 
     [입력 데이터]
     - instructions_text:

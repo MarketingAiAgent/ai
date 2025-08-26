@@ -25,13 +25,11 @@ def _as_list(x) -> List[str]:
     s = str(x).strip()
     return [s] if s else []
 
-
-
 # ===== Prompt =====
 LLM_PARSE_PROMPT = f"""
 역할: 자유 형식 마케팅 입력을 구조화한다. 라벨/순서/언어/불릿/누락 모두 가능.
 출력은 오직 JSON 하나. 코드펜스/설명 금지.
-오늘 날짜 컨텍스트: TODAY={datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()} (Asia/Seoul)
+오늘 날짜 컨텍스트: TODAY={datetime.datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()} (Asia/Seoul)
 
 스키마:
 {{
@@ -331,5 +329,97 @@ def node_fetch_schema_hint(state: PlanState) -> PlanState:
         }
     }
     return state
+
+
+def create_plan_from_promotion_slots(promotion_slots: Dict[str, Any], promotion_content: str) -> Dict[str, Any]:
+    """
+    프로모션 슬롯과 기획 내용을 입력받아 formatter의 output 형태로 변환
+    
+    Args:
+        promotion_slots: PromotionSlots 데이터
+        promotion_content: 프로모션 기획 내용 (텍스트)
+    
+    Returns:
+        formatter output 형태의 데이터
+    """
+    # 프로모션 내용을 demo_insight로 사용
+    demo_insight = promotion_content
+    
+    # LLM으로 파싱
+    parsed = llm_parse_demo_insight(demo_insight)
+    
+    # plan_type 결정 (target_type 기반)
+    target_type = promotion_slots.get('target_type', 'brand')
+    if target_type == 'brand':
+        plan_type = "단일 프로모션"
+    else:
+        plan_type = "카테고리/계절 프로모션"
+    
+    # 스키마 힌트 가져오기
+    schema_hint = fetch_exam_example(plan_type)
+    if not schema_hint:
+        # 기본 스키마 생성
+        if plan_type == "단일 프로모션":
+            primary_brand = promotion_slots.get('focus', '브랜드')
+            schema_hint = [{
+                "title": f"{primary_brand} 브랜드 프로모션",
+                "main_banner": "",
+                "coupon_section": "",
+                "product_section": "",
+                "event_notes": ""
+            }]
+        else:
+            schema_hint = [{
+                "title": "카테고리 프로모션",
+                "main_banner": "",
+                "product_section1": "",
+                "product_section2": "",
+                "product_section3": ""
+            }]
+    
+    # LLM으로 최종 기획서 생성
+    llm = get_llm()
+    
+    if plan_type == "단일 프로모션":
+        prompt = _brand_prompt(parsed, schema_hint)
+    else:
+        prompt = _category_prompt(parsed, schema_hint)
+    
+    try:
+        raw_response = llm.invoke(prompt).content
+        raw_response = _strip_code_fence(raw_response)
+        final_exam = json.loads(raw_response)
+        
+        if not isinstance(final_exam, list):
+            final_exam = [final_exam]
+            
+    except Exception as e:
+        # LLM 생성 실패 시 기본 템플릿 사용
+        if plan_type == "단일 프로모션":
+            primary_brand = promotion_slots.get('focus', '브랜드')
+            final_exam = [{
+                "title": f"{primary_brand} 브랜드 프로모션",
+                "main_banner": promotion_content[:200] + "..." if len(promotion_content) > 200 else promotion_content,
+                "coupon_section": "프로모션 쿠폰 정보",
+                "product_section": "선택된 상품 정보",
+                "event_notes": "이벤트 세부사항"
+            }]
+        else:
+            final_exam = [{
+                "title": "카테고리 프로모션",
+                "main_banner": promotion_content[:200] + "..." if len(promotion_content) > 200 else promotion_content,
+                "product_section1": "상품 섹션 1",
+                "product_section2": "상품 섹션 2", 
+                "product_section3": "상품 섹션 3"
+            }]
+    
+    return {
+        "plan_type": plan_type,
+        "demo_insight": demo_insight,
+        "parsed": parsed,
+        "schema_hint": {"example": schema_hint},
+        "final_exam": final_exam,
+        "target_type": target_type
+    }
 
 

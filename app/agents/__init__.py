@@ -4,6 +4,7 @@ from collections import deque
 
 from .orchestrator.state import return_initial_state
 from .orchestrator.graph import orchestrator_app
+from .formatter.grapy import create_plan_from_promotion_slots
 from app.mock.chat import *
 
 async def stream_agent(chat_id, history, active_task, conn_str, schema_info, message):
@@ -44,6 +45,31 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
         async for event in orchestrator_app.astream_events(state, version="v2"):
             kind = event["event"]
             current_node = event.get("metadata", {}).get("langgraph_node")
+            
+            # 프로모션 최종 생성 완료 시 plan 데이터 전송
+            if kind == "on_chain_end" and current_node == "response_generator":
+                final_state = event.get("data", {}).get("output")
+                if final_state and final_state.get("is_final_promotion"):
+                    # 프로모션 슬롯과 기획 내용 추출
+                    promotion_slots = final_state.get("promotion_slots", {})
+                    promotion_content = final_state.get("output", "")
+                    
+                    # formatter를 통해 plan 데이터 생성
+                    try:
+                        create_plan_from_promotion_slots(promotion_slots, promotion_content)
+                        plan_payload = {
+                            "type": "plan",
+                            "content": promotion_slots.get('target_type', 'brand')
+                        }
+                        yield f"data: {json.dumps(plan_payload, ensure_ascii=False)}\n\n"
+                    except Exception as e:
+                        logging.error(f"Plan data generation failed: {e}")
+                        # 실패 시에도 기본 plan 데이터 전송
+                        plan_payload = {
+                            "type": "plan",
+                            "content": promotion_slots.get('target_type', 'brand')
+                        }
+                        yield f"data: {json.dumps(plan_payload, ensure_ascii=False)}\n\n"
             
             if kind == "on_chain_end" and current_node== "visualizer":
                 final_state = event.get("data", {}).get("output")

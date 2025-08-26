@@ -7,6 +7,7 @@ import uuid
 
 from app.agents.__init__ import stream_agent
 from app.agents.orchestrator.state import PromotionSlots, ActiveTask
+from app.agents.formatter.grapy import create_plan_from_promotion_slots
 from app.schema.chat import ChatRequest, NewChatRequest, CreatePlanRequest
 from app.core.config import settings
 from app.database.chat_history import *
@@ -75,15 +76,51 @@ def create_plan(request: CreatePlanRequest):
     chat_id = request.chat_id 
     active_state = get_or_create_state(chat_id=chat_id)
 
-    return_type = active_state.get('target_type', 'brand')
-    if return_type != "brand" and return_type != "category":
-        return_type = 'brand'
-
-    return mock_create_plan(return_type, request.company, request.user_id)
-
-    # if active_tast.status == "in_progress":
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail=f"아직 프로모션이 준비되지 않았습니다."
-    #     )
-    # else:
+    # 프로모션 슬롯 데이터 추출
+    promotion_slots = {
+        'target_type': active_state.get('target_type', 'brand'),
+        'focus': active_state.get('focus'),
+        'target': active_state.get('target'),
+        'objective': active_state.get('objective'),
+        'duration': active_state.get('duration'),
+        'selected_product': active_state.get('selected_product', []),
+        'product_options': active_state.get('product_options', []),
+        'wants_trend': active_state.get('wants_trend')
+    }
+    
+    # 최근 채팅 히스토리에서 프로모션 기획 내용 추출
+    history = get_chat_history(chat_id=chat_id)
+    promotion_content = ""
+    
+    # 최근 어시스턴트 메시지에서 프로모션 내용 찾기
+    for message in reversed(history):
+        if message.get('role') == 'assistant':
+            content = message.get('content', '')
+            if content and len(content) > 100:  # 충분히 긴 메시지가 프로모션 기획서일 가능성
+                promotion_content = content
+                break
+    
+    # 프로모션 내용이 없으면 기본 텍스트 사용
+    if not promotion_content:
+        target_type = promotion_slots.get('target_type', 'brand')
+        focus = promotion_slots.get('focus', '브랜드')
+        target = promotion_slots.get('target', '고객')
+        promotion_content = f"{focus} {target} 프로모션 기획서"
+    
+    try:
+        # formatter를 통해 실제 plan 데이터 생성
+        plan_data = create_plan_from_promotion_slots(promotion_slots, promotion_content)
+        
+        # plan_data에서 final_exam 추출하여 반환
+        final_exam = plan_data.get('final_exam', [])
+        if final_exam:
+            return final_exam[0]  # 첫 번째 기획서 반환
+        else:
+            # fallback: mock 데이터 사용
+            return_type = promotion_slots.get('target_type', 'brand')
+            return mock_create_plan(return_type, request.company, request.user_id)
+            
+    except Exception:
+        # 에러 발생 시 mock 데이터 사용
+        return_type = promotion_slots.get('target_type', 'brand')
+        return mock_create_plan(return_type, request.company, request.user_id)

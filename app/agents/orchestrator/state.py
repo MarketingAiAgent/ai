@@ -5,20 +5,22 @@ from pydantic import BaseModel, Field
 class PromotionSlots(BaseModel):
     objective: Optional[str] = Field(None, description="사용자가 정의한 이 프로모션으로 이루고자 하는 것")
     target_type: Optional[Literal["brand", "category"]] = Field(None, description="프로모션의 타겟 종류")
-    target: Optional[str] = Field(None, description="프로모션 타겟 고객")
+    target: Optional[str] = Field(None, description="프로모션 타겟 고객층")
     product_options: List[str] = Field(default_factory=list, description="사용자에게 제안할 상품 후보 목록")
     selected_product: List[str] = Field([], description="사용자가 최종 선택한 프로모션 상품")
-    brand: Optional[str] = Field(None, description="사용자가 선택한 프로모션 타겟 브랜드")
+    focus: Optional[str] = Field(None, description="선택된 브랜드 또는 카테고리")
     duration: Optional[str] = Field(None, description="프로모션 기간")
+    wants_trend: Optional[bool] = Field(None, description="트렌드 반영 여부")
 
 class PromotionSlotUpdate(BaseModel):
     target_type: Optional[Literal["brand", "category"]] = None
-    brand: Optional[str] = None
+    focus: Optional[str] = None
     target: Optional[str] = None
     objective: Optional[str] = None
     duration: Optional[str] = None
     selected_product: Optional[List[str]] = None
     product_options: Optional[List[str]] = None
+    wants_trend: Optional[bool] = None
     
 class ActiveTask(BaseModel):
     task_id: str

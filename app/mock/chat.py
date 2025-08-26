@@ -45,9 +45,6 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
   payload = {"type": "table_end"}
   yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-  payload = {"type": "plan", "content": "brand"}
-  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
   simple_graph = {
     "data": [
       {
@@ -84,7 +81,10 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
   
   payload = {'type': "graph", "content": simple_graph}
   yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-    
+  
+  payload = {"type": "plan", "content": "brand"}
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
     # 완료 신호
   payload = {"type": "done"}
   yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
