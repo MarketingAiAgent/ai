@@ -174,14 +174,22 @@ def slot_extractor_node(state: OrchestratorState):
     parser = PydanticOutputParser(pydantic_object=PromotionSlotUpdate)
     prompt_tmpl = textwrap.dedent("""
     아래 한국어 사용자 메시지에서 **프로모션 슬롯 값**을 추출해 주세요.
+    
+    **추출 규칙:**
     - 존재하는 값만 채우고, 없으면 null로 두세요.
+    - 명시적으로 언급되지 않은 필드는 절대 추측하지 마세요.
     - target_type은 "brand" 또는 "category" 중 하나로만.
     - 날짜/기간은 원문 그대로 문자열로 유지.
     - focus: 사용자가 선택한 브랜드명 또는 카테고리명 (예: "나이키", "스포츠웨어")
-    - target: 타겟 고객층 (예: "20대 남성", "직장인")
+    - target: 타겟 고객층 - 명시적으로 언급된 경우에만 (예: "20대 남성", "직장인")
     - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
     - wants_trend: 트렌드 반영 여부 (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
+    - objective: 프로모션 목표 - 명시적으로 언급된 경우에만 (예: "매출 증대", "신규 고객 유입")
+    
+    **금지사항:**
+    - budget, cost, 예산 등은 추출하지 마세요 (슬롯에 없는 필드임)
     - 브랜드/카테고리와 상품명을 명확히 구분하세요. 브랜드/카테고리는 focus 필드에, 구체적인 상품은 selected_product에 넣으세요.
+    
     - 출력은 반드시 다음 JSON 스키마를 따르세요:
       {format_instructions}
 
@@ -202,11 +210,20 @@ def slot_extractor_node(state: OrchestratorState):
 
     updates = {k: v for k, v in parsed.model_dump().items() if v not in (None, "", [])}
     
-    # target_type이 이미 설정되어 있으면 변경하지 않음
+    # 이미 설정된 슬롯은 변경하지 않음 (기존 값 보존)
     current_slots = state.get("active_task").slots if state.get("active_task") and state.get("active_task").slots else PromotionSlots()
-    if current_slots.target_type and "target_type" in updates:
-        logger.info("target_type이 이미 설정됨 (%s), 변경 방지", current_slots.target_type)
-        del updates["target_type"]
+    
+    # 이미 채워진 필드들은 업데이트에서 제거
+    preserved_fields = []
+    for field in ["target_type", "focus", "duration", "selected_product", "wants_trend"]:
+        current_value = getattr(current_slots, field, None)
+        if current_value not in (None, "", []) and field in updates:
+            preserved_fields.append(field)
+            logger.info("%s이(가) 이미 설정됨 (%s), 변경 방지", field, current_value)
+            del updates[field]
+    
+    if preserved_fields:
+        logger.info("보존된 필드들: %s", preserved_fields)
     
     if not updates:
         logger.info("슬롯 업데이트 없음")
@@ -236,14 +253,7 @@ def _planner_router(state: OrchestratorState) -> str:
         logger.info("→ 프로모션 플로우: slot_extractor")
         return "slot_extractor"
     
-    # 트렌드 적용 상태인지 확인
-    tr = state.get("tool_results") or {}
-    action = tr.get("action") or {}
-    if action.get("status") == "apply_trends":
-        # 트렌드 반영을 위한 외부 데이터 수집 툴 자동 호출
-        logger.info("→ 트렌드 적용 상태: action_state")
-        return "action_state"  # action_state -> tool_executor로 라우팅됨
-        
+
     if instr.tool_calls and len(instr.tool_calls) > 0:
         logger.info("→ 툴 호출 필요: tool_executor (%d개 툴)", len(instr.tool_calls))
         return "tool_executor"
@@ -1028,24 +1038,29 @@ def response_generator_node(state: OrchestratorState):
     - youtuber_trend_results: Supabase 뷰티 유튜버 트렌드 결과(JSON).
 
     [작성 지침]
-    1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (bra")
+    1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요.
+    1-1) **중복 질문 방지**: 이미 채워진 슬롯에 대해서는 절대 재질문하지 마세요. ask_prompts에 있어도 이미 답변된 내용이면 건너뛰세요.
     2) **프로모션 완성 규칙**: 
        - `action_decision`의 `status`가 "start_promotion"인 경우, 완성된 프로모션 슬롯 정보를 기반으로 프로모션 내용을 정리해서 보여주고, 마지막 문단에 반드시 "최신 트렌드나 유행어를 반영해서 프로모션을 만들길 원하시나요?"라고 질문하세요.
        - `action_decision`의 `status`가 "create_final_plan"인 경우, 트렌드 반영 없이 완성된 프로모션 기획서를 제작하세요.
        - `action_decision`의 `status`가 "apply_trends"이고 외부 데이터가 있는 경우, 수집된 트렌드를 반영한 최종 프로모션 기획서를 제작하세요.
        - **중요**: 사용자가 이미 트렌드 반영 여부에 대해 답변했다면 (wants_trend가 true/false로 설정됨), 같은 질문을 다시 하지 마세요.
     3) 위 1,2번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
-    4) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
+    4) **허용된 프로모션 필드만 질문하세요**: 
+       - 필수 필드: target_type, focus, duration, selected_product
+       - 선택 필드: objective, wants_trend
+       - 금지 필드: budget, cost, 예산 등 (존재하지 않는 필드들)
+    5) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)
        - `llm_reasons`가 없으면 기존 `reasons`, `business_reasons` 등을 사용하세요
        - 모든 수치는 어떤 수치인지 구체적인 언급을 해주세요
        - 마지막에 '기타(직접 입력)'도 추가합니다    
-    5) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
-    6) t2s_table 처리 규칙:
+    6) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
+    7) t2s_table 처리 규칙:
        - output_type이 "export"인 경우: 표나 시각화를 포함하지 말고, 데이터 준비가 완료되었음을 안내하세요. 다운로드 링크는 시스템에서 자동으로 추가됩니다.
        - output_type이 "table"인 경우: 상위 10행 미리보기 표만 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
        - output_type이 "visualize"인 경우: 상위 10행 미리보기 표를 포함하고, 시각화 결과가 있다면 함께 제공하세요.
-    7) 전체적으로 구조화된 형식을 유지하세요.
+    8) 전체적으로 구조화된 형식을 유지하세요.
 
     [입력 데이터]
     - instructions_text:

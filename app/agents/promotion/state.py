@@ -6,9 +6,9 @@ ASK_PROMPT_MAP = {
     "target_type": "프로모션 종류를 선택해 주세요. 브랜드 대상 프로모션과 카테고리 대상 프로모션 기능을 지원합니다.",
     "focus_brand": "어떤 브랜드로 프로모션을 진행하고 싶으신가요? (예: 나이키, 아디다스, 삼성 등)",
     "focus_category": "어떤 카테고리로 프로모션을 진행하고 싶으신가요? (예: 스포츠웨어, 화장품, 전자제품 등)",
-    "target": "타겟 고객층을 알려주실 수 있을까요? (예: 20대 남성, 직장인, 대학생 등)",
-    "objective": "이번 프로모션의 목표(예: 매출 증대, 신규 고객 유입)를 알려주실 수 있을까요?",
     "duration": "프로모션 기간을 알려주실 수 있을까요? (예: 2025-09-01 ~ 2025-09-14)",
+    # target과 objective는 필수가 아니므로 ASK_PROMPT_MAP에서 제거
+    # 이제 이 필드들에 대한 재질문이 발생하지 않음
 }
 
 def _is_filled(v) -> bool:
@@ -30,7 +30,7 @@ def get_action_state(
             "payload": {},
         }
 
-    # 필수 슬롯 목록 확인
+    # 필수 슬롯 목록 확인 (target은 선택사항으로 변경)
     ordered_missing: List[str] = []
     focus_key = None
     
@@ -41,8 +41,9 @@ def get_action_state(
             focus_key = "focus_category"
         ordered_missing.append("focus")
     
-    if not _is_filled(slots.target):
-        ordered_missing.append("target")
+    # target은 필수가 아님 - 제거
+    # if not _is_filled(slots.target):
+    #     ordered_missing.append("target")
     
     if not _is_filled(slots.duration):
         ordered_missing.append("duration")
