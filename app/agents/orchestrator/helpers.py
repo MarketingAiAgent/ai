@@ -250,13 +250,9 @@ GOOD_DIR = {  # 값이 클수록 좋은 지표
 }
 
 WEIGHTS = {
-    "growth_pct": 0.35,
-    "gm": 0.20,
-    "conversion_rate": 0.15,
-    "repeat_rate": 0.10,
-    "seasonality_score": 0.10,
-    "return_rate": 0.05,
-    "inventory_days": 0.05,
+    "growth_pct": 0.60,
+    "gm": 0.30,
+    "revenue": 0.10,
     # 나머지는 있으면 보너스
 }
 

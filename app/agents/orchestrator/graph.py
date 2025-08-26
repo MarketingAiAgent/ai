@@ -568,96 +568,27 @@ def _action_router(state: OrchestratorState) -> str:
     
 def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) -> str:
     end = datetime.now(ZoneInfo("Asia/Seoul")).date()
-    start = end - timedelta(days=60)
+    start = end - timedelta(days=30)  # 30일로 단축
     
-    # focus 필터링 조건을 담을 변수
-    focus_filter_instruction = ""
-    if slots and slots.focus:
-        focus_label = "브랜드" if target_type == "brand" else "카테고리"
-        focus_filter_instruction = f" 또한, 결과는 반드시 '{slots.focus}' {focus_label}의 제품만 포함해야 합니다."
- 
+    # target 조건 추가
+    target_filter = ""
+    if slots and slots.target:
+        target_filter = f" '{slots.target}' 타겟 고객층이 주로 구매하는"
+    
     if target_type == "brand":
-        # 브랜드가 이미 선택된 경우 해당 브랜드의 상품 목록을 반환
         if slots and slots.focus:
-            return textwrap.dedent(f"""
-            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.focus}' 브랜드의 상품 레벨 후보 목록을 산출해 주세요.
-            반드시 다음 컬럼 alias를 포함해야 합니다:
-            - product_id
-            - product_name
-            - brand_name (반드시 '{slots.focus}'이어야 함)
-            - category_name
-            - revenue (최근 기간 매출)
-            - growth_pct (이전 동일기간 대비 증감율, %)
-            - gm (최근 기간 총이익률, 0~1)
-            - conversion_rate
-            - repeat_rate
-            - aov
-            - inventory_days
-            - return_rate
-            - price_band
-            - gender_age
-            행은 상품별 1행입니다. '{slots.focus}' 브랜드의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
-            """).strip()
+            # 브랜드가 선택된 경우 해당 브랜드의 상품 옵션
+            return f"'{slots.focus}' 브랜드의{target_filter} 최근 30일 매출 상위 20개 상품을 product_name, revenue, growth_pct 컬럼으로 조회해 주세요."
         else:
             # 브랜드 선택 단계
-            return textwrap.dedent(f"""
-            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.
-            반드시 다음 컬럼 alias를 포함해야 합니다:
-            - brand_name
-            - revenue (최근 기간 매출)
-            - growth_pct (이전 동일기간 대비 증감율, %)
-            - gm (최근 기간 총이익률, 0~1)
-            - conversion_rate
-            - repeat_rate
-            - aov
-            - inventory_days
-            - return_rate
-            - category_name
-            - price_band
-            - gender_age
-            행은 브랜드별 1행입니다. 최근 기간 매출 상위 100개 내에서 반환해 주세요.
-            """).strip()
+            return f"{target_filter} 최근 30일 매출 상위 15개 브랜드를 brand_name, revenue, growth_pct 컬럼으로 조회해 주세요."
     else:
-        # 카테고리 타입
         if slots and slots.focus:
-            # 특정 카테고리가 선택된 경우 해당 카테고리의 상품 목록
-            return textwrap.dedent(f"""
-            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.focus}' 카테고리의 상품 레벨 후보 목록을 산출해 주세요.
-            반드시 다음 컬럼 alias를 포함해야 합니다:
-            - product_id
-            - product_name
-            - category_name (반드시 '{slots.focus}'이어야 함)
-            - brand_name
-            - revenue (최근 기간 매출)
-            - growth_pct (이전 동일기간 대비 증감율, %)
-            - gm (최근 기간 총이익률, 0~1)
-            - conversion_rate
-            - repeat_rate
-            - aov
-            - inventory_days
-            - return_rate
-            - price_band
-            - gender_age
-            행은 상품별 1행입니다. '{slots.focus}' 카테고리의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
-            """).strip()
+            # 카테고리가 선택된 경우 해당 카테고리의 상품 옵션
+            return f"'{slots.focus}' 카테고리의{target_filter} 최근 30일 매출 상위 20개 상품을 product_name, brand_name, revenue, growth_pct 컬럼으로 조회해 주세요."
         else:
-            # 카테고리 선택 단계 - 카테고리 레벨로 반환
-            return textwrap.dedent(f"""
-            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 카테고리 레벨 후보 목록을 산출해 주세요.
-            반드시 다음 컬럼 alias를 포함해야 합니다:
-            - category_name
-            - revenue (최근 기간 매출)
-            - growth_pct (이전 동일기간 대비 증감율, %)
-            - gm (최근 기간 총이익률, 0~1)
-            - conversion_rate
-            - repeat_rate
-            - aov
-            - inventory_days
-            - return_rate
-            - price_band
-            - gender_age
-            행은 카테고리별 1행입니다. 최근 기간 매출 상위 50개 카테고리를 반환해 주세요.
-            """).strip()
+            # 카테고리 선택 단계
+            return f"{target_filter} 최근 30일 매출 상위 15개 카테고리를 category_name, revenue, growth_pct 컬럼으로 조회해 주세요."
 
 def options_generator_node(state: OrchestratorState):
     logger.info("--- 🧠 옵션 제안 노드 실행 시작 ---")
@@ -711,9 +642,10 @@ def options_generator_node(state: OrchestratorState):
     
     if not llm_recommendations:
         logger.warning("❌ LLM 추천 생성 실패 - 기존 방식으로 폴백")
-        # 폴백: 기존 방식 사용
+        # 폴백: 단순 점수 기반 선택
         enriched = compute_opportunity_score(rows, trending_terms)
-        topk = pick_diverse_top_k(enriched, k=5)
+        # 다양성 제약 없이 상위 점수 순으로 선택
+        topk = sorted(enriched, key=lambda x: x.get("opportunity_score", 0), reverse=True)[:5]
         
         labels = []
         candidates = []
@@ -742,10 +674,10 @@ def options_generator_node(state: OrchestratorState):
                 "id": cid,
                 "label": label,
                 "type": typ,
-                "metrics": {k: r.get(k) for k in ("revenue","growth_pct","gm","conversion_rate","repeat_rate","aov","inventory_days","seasonality_score","return_rate") if k in r},
+                "metrics": {k: r.get(k) for k in ("revenue","growth_pct","gm") if k in r},
                 "opportunity_score": r.get("opportunity_score"),
                 "reasons": r.get("reasons", []),
-                "diversity_tags": [x for x in (r.get("category_name"), r.get("price_band"), r.get("gender_age")) if x],
+                "score": r.get("opportunity_score"),
             })
             
             logger.info("  %d번 폴백 추천: %s (%s)", i+1, label, typ)
@@ -760,14 +692,11 @@ def options_generator_node(state: OrchestratorState):
             name = rec.get("name", f"추천{i+1}")
             typ = rec.get("type", "product")
             
-            # 원본 데이터에서 해당 항목 찾기 (메트릭 정보를 위해)
+            # 원본 데이터에서 해당 항목 찾기 (인덱스 기반 매칭으로 최적화)
             original_row = None
-            for row in rows:
-                if (row.get("brand_name") == name or 
-                    row.get("product_name") == name or 
-                    row.get("category_name") == name):
-                    original_row = row
-                    break
+            # 첫 번째로 매칭되는 항목 사용 (이미 정렬된 상위 결과에서 선택했으므로)
+            if i < len(rows):
+                original_row = rows[i]
             
             if target_type == "brand":
                 cid = f"brand:{name}"
@@ -787,7 +716,7 @@ def options_generator_node(state: OrchestratorState):
                 "llm_reasons": rec.get("reasons", []),  # LLM이 생성한 상세 설명
                 "metrics_summary": rec.get("metrics_summary", ""),
                 "rank": rec.get("rank", i+1),
-                "metrics": {k: original_row.get(k) for k in ("revenue","growth_pct","gm","conversion_rate","repeat_rate","aov","inventory_days","seasonality_score","return_rate") if original_row and k in original_row} if original_row else {},
+                "metrics": {k: original_row.get(k) for k in ("revenue","growth_pct","gm") if original_row and k in original_row} if original_row else {},
             }
             
             candidates.append(candidate)
@@ -798,9 +727,9 @@ def options_generator_node(state: OrchestratorState):
 
     option_json = {
         "candidates": candidates,
-        "method": "deterministic_v1",
-        "time_window": "",
-        "constraints": {"min_gm": 0.25, "max_return_rate": 0.1},
+        "method": "simplified_v2",
+        "time_window": "30days",
+        "constraints": {},
     }
 
     logger.info("💾 상태 업데이트 중...")
