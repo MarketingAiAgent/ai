@@ -40,8 +40,18 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
         "duration": getattr(slots, 'duration', None) or "미정",
     }
     
-    # 상위 20개 정도만 LLM에 전달 (토큰 제한 고려)
-    top_rows = sorted(rows, key=lambda x: x.get('revenue', 0), reverse=True)[:20]
+    # 상위 20개 정도만 LLM에 전달 (토큰 제한 고려) - None 값 안전 처리
+    def safe_revenue_key(x):
+        revenue = x.get('revenue', 0)
+        # None이나 NaN 값을 0으로 처리
+        if revenue is None or (isinstance(revenue, (int, float)) and revenue != revenue):  # NaN 체크
+            return 0
+        try:
+            return float(revenue)
+        except (ValueError, TypeError):
+            return 0
+    
+    top_rows = sorted(rows, key=safe_revenue_key, reverse=True)[:20]
     
     prompt = f"""당신은 마케팅 전문가입니다. 현재 프로모션 기획 과정에서 사용자에게 제시할 상위 5개 추천 옵션을 선별하고 각각의 상세한 근거를 제공해야 합니다.
 
@@ -53,7 +63,7 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
 - 기간: {promotion_context['duration']}
 
 **내부 데이터베이스 분석 결과 (상위 20개):**
-{json.dumps(top_rows, ensure_ascii=False, indent=2)}
+{json.dumps(top_rows, ensure_ascii=False, indent=2, default=str)}
 
 **시장 트렌드 분석:**
 - 트렌딩 키워드: {knowledge.get('trending_terms', [])}
@@ -98,6 +108,58 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
     logger.info("📊 입력 데이터: %d개 행, 트렌딩 용어: %s", len(top_rows), knowledge.get('trending_terms', []))
     
     try:
+        # 프롬프트 크기 체크 (너무 크면 축소)
+        if len(prompt) > 50000:  # 50KB 제한
+            logger.warning("⚠️ 프롬프트가 너무 큽니다 (%d자), 데이터 축소 중...", len(prompt))
+            top_rows = top_rows[:10]  # 20개에서 10개로 축소
+            prompt = f"""당신은 마케팅 전문가입니다. 현재 프로모션 기획 과정에서 사용자에게 제시할 상위 5개 추천 옵션을 선별하고 각각의 상세한 근거를 제공해야 합니다.
+
+**현재 프로모션 기획 상황:**
+- 타겟 유형: {promotion_context['target_type']}
+- 포커스: {promotion_context['focus']}
+- 타겟 고객층: {promotion_context['target']}  
+- 목표: {promotion_context['objective']}
+- 기간: {promotion_context['duration']}
+
+**내부 데이터베이스 분석 결과 (상위 10개):**
+{json.dumps(top_rows, ensure_ascii=False, indent=2, default=str)}
+
+**시장 트렌드 분석:**
+- 트렌딩 키워드: {knowledge.get('trending_terms', [])}
+- 계절성 스파이크: {knowledge.get('seasonal_spikes', [])}
+- 수집 소스: {knowledge.get('notes', [])}
+
+**요청사항:**
+1. 위 데이터를 종합 분석하여 상위 5개 추천을 선별하세요
+2. 각 추천마다 다음 형태로 상세한 근거를 1-3개 제시하세요:
+   - "내부 데이터베이스 분석 결과..."로 시작하는 DB 근거 (해당시)
+   - "시장 트렌드 분석 결과..."로 시작하는 외부 트렌드 근거 (해당시)
+   - 현재 프로모션 목표와의 연관성 (해당시)
+3. 비즈니스 관점에서 마케터가 이해하기 쉽게 설명하세요
+4. **타입 구분**: 
+   - 브랜드 프로모션: "type": "brand"
+   - 카테고리 프로모션 (카테고리 선택 단계): "type": "category"
+   - 카테고리 프로모션 (상품 선택 단계): "type": "product"
+
+**중요: 반드시 아래 JSON 형태로만 응답하세요. 마크다운, 설명, 코드펜스 등은 절대 포함하지 마세요.**
+
+{{
+  "recommendations": [
+    {{
+      "rank": 1,
+      "name": "상품/브랜드/카테고리명",
+      "type": "{promotion_context['target_type']}",
+      "id": "원본 데이터의 식별자",
+      "reasons": [
+        "내부 데이터베이스 분석 결과 구체적인 근거1",
+        "시장 트렌드 분석 결과 구체적인 근거2",
+        "추가 비즈니스 근거3"
+      ],
+      "metrics_summary": "주요 성과 지표 요약"
+    }}
+  ]
+}}"""
+
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0.1,
@@ -105,6 +167,7 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
             api_key=settings.GOOGLE_API_KEY
         )
         
+        logger.info("📤 LLM 호출 중... (프롬프트 크기: %d자)", len(prompt))
         response = llm.invoke(prompt)
         logger.info("✅ LLM 응답 수신 완료")
         
@@ -350,6 +413,9 @@ def planner_node(state: OrchestratorState):
       - 웹 스크래핑: `{{"tool": "scrape_webpages", "args": {{"urls": ["https://...", ...]}}}}`
       - 마케팅 트렌드: `{{"tool": "marketing_trend_search", "args": {{"question": "질문"}}}}`
       - 뷰티 트렌드: `{{"tool": "beauty_youtuber_trend_search", "args": {{"question": "질문"}}}}`
+    - **트렌드 반영 프로모션**: 다음 경우에 마케팅 트렌드 수집 툴들을 호출하세요:
+      * wants_trend=true이고 필요 슬롯이 모두 채워진 경우 
+      * 또는 이전 메시지가 트렌드 질문이고 현재 사용자가 긍정적으로 응답한 경우 (예: "예", "네", "응", "좋아", "해줘" 등)
     - 도구 사용이 필요 없으면 `tool_calls` 필드를 null로 두세요.
 
     ## Time normalization
@@ -366,6 +432,8 @@ def planner_node(state: OrchestratorState):
 
     ## Decision rules
     - Promotion flow: do NOT call tools this turn. Just set `response_generator_instruction` (with [PROMOTION]).
+    - **EXCEPTION 1**: If active_task shows promotion is ready for trend application (wants_trend=true, all slots filled), then call trend tools instead of setting [PROMOTION].
+    - **EXCEPTION 2**: If user is responding positively to a trend question (check conversation history for recent trend question + current positive response), then call trend tools even if wants_trend is still None.
     - One-off answers: set `tool_calls` as needed.
     - Out-of-scope: both tools null, and provide short polite guidance with [OUT_OF_SCOPE].
     - Output must be concise, Korean polite style.
@@ -396,12 +464,19 @@ def planner_node(state: OrchestratorState):
             template=prompt_template,
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0,
-            model_kwargs={"response_format": {"type": "json_object"}},
-            api_key=settings.GOOGLE_API_KEY
-        )
+        # llm = ChatGoogleGenerativeAI(
+        #     model="gemini-2.5-flash",
+        #     temperature=0,
+        #     model_kwargs={"response_format": {"type": "json_object"}},
+        #     api_key=settings.GOOGLE_API_KEY
+        # )
+
+        llm = ChatAnthropic(
+        model="claude-sonnet-4-20250514", 
+        temperature=0.1,
+        model_kwargs={"response_format": {"type": "json_object"}},
+        api_key=settings.ANTHROPIC_API_KEY
+    )
 
         logger.info("LLM 호출 중...")
         instructions = (prompt | llm | parser).invoke({
@@ -948,7 +1023,7 @@ def promotion_final_generator(state: OrchestratorState, action_decision: dict, t
     
     # Claude-4-Sonnet 사용
     llm = ChatAnthropic(
-        model="claude-3-5-sonnet-20241022", 
+        model="claude-sonnet-4-20250514", 
         temperature=0.1,
         api_key=settings.ANTHROPIC_API_KEY
     )
@@ -1046,9 +1121,10 @@ def response_generator_node(state: OrchestratorState):
        - `action_decision`의 `status`가 "apply_trends"이고 외부 데이터가 있는 경우, 수집된 트렌드를 반영한 최종 프로모션 기획서를 제작하세요.
        - **중요**: 사용자가 이미 트렌드 반영 여부에 대해 답변했다면 (wants_trend가 true/false로 설정됨), 같은 질문을 다시 하지 마세요.
     3) 위 1,2번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
-    4) **허용된 프로모션 필드만 질문하세요**: 
-       - 필수 필드: target_type, focus, duration, selected_product
-       - 선택 필드: objective, wants_trend
+    4) **프로모션 필드 질문 규칙**: 
+       - 필수 필드: target_type, focus, duration, selected_product (반드시 물어봐야 함)
+       - wants_trend: 트렌드 반영 질문만 (사용자가 먼저 언급하지 않는 한 굳이 물어보지 마세요)
+       - objective: 사용자가 명시적으로 언급한 경우에만 처리 (굳이 질문하지 마세요)
        - 금지 필드: budget, cost, 예산 등 (존재하지 않는 필드들)
     5) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)
@@ -1099,9 +1175,13 @@ def response_generator_node(state: OrchestratorState):
     to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
 
     prompt = ChatPromptTemplate.from_template(prompt_tmpl)
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
-    # llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", temperature=0, api_key=settings.ANTHROPIC_API_KEY)
-    
+    # llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
+    llm = ChatAnthropic(
+        model="claude-sonnet-4-20250514", 
+        temperature=0.1,
+        api_key=settings.ANTHROPIC_API_KEY
+    )
+        
     final_text = (prompt | llm).invoke({
         "instructions_text": instructions_text,
         "action_decision_json": to_json(action_decision),
@@ -1129,7 +1209,7 @@ def response_generator_node(state: OrchestratorState):
         logger.warning("Export 요청이지만 다운로드 URL이 없습니다.")
     
     logger.info(f"✅ 응답 생성 완료 (길이: {len(final_response)}자)")
-    logger.info(f"최종 결과 미리보기: {final_response[:200]}...")
+    logger.info(f"최종 결과 미리보기: {final_response}...")
     
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})
