@@ -70,7 +70,7 @@ def call_sql(state: SQLState):
     except Exception as e:
         # 실패해도 data_json은 동일 스키마로 채워서 downstream이 깨지지 않게
         state.data_json = {"rows": [], "columns": [], "row_count": 0, "error": str(e)}
-        state.error = e
+        state.error = str(e)  # Exception 객체를 문자열로 변환
         state.tried = getattr(state, "tried", 0) + 1
         logger.error(f"SQL 실행 실패:{e}")
 
