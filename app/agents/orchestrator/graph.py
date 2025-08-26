@@ -253,8 +253,10 @@ def slot_extractor_node(state: OrchestratorState):
     - budget, cost, 예산 등은 추출하지 마세요 (슬롯에 없는 필드임)
     - 브랜드/카테고리와 상품명을 명확히 구분하세요. 브랜드/카테고리는 focus 필드에, 구체적인 상품은 selected_product에 넣으세요.
     
-    - 출력은 반드시 다음 JSON 스키마를 따르세요:
-      {format_instructions}
+    **CRITICAL: 출력은 반드시 유효한 JSON 형태여야 합니다. 다른 텍스트나 설명 없이 JSON만 반환하세요.**
+    
+    JSON 스키마:
+    {format_instructions}
 
     [사용자 메시지]
     {user_message}
@@ -388,6 +390,9 @@ def planner_node(state: OrchestratorState):
 
         prompt_template = textwrap.dedent("""
     You are the orchestrator for a marketing agent. Decide what to do this turn using ONLY the provided context.
+    
+    **CRITICAL: You MUST output ONLY valid JSON. No explanations, no markdown, no code blocks - just pure JSON.**
+    
     You MUST output a JSON that strictly follows: {format_instructions}
 
     ## Route decision (VERY IMPORTANT)
@@ -472,20 +477,35 @@ def planner_node(state: OrchestratorState):
         # )
 
         llm = ChatAnthropic(
-        model="claude-sonnet-4-20250514", 
-        temperature=0.1,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        api_key=settings.ANTHROPIC_API_KEY
-    )
+            model="claude-sonnet-4-20250514", 
+            temperature=0.1,
+            api_key=settings.ANTHROPIC_API_KEY
+        )
 
         logger.info("LLM 호출 중...")
-        instructions = (prompt | llm | parser).invoke({
-            "user_message": state['user_message'],
-            "history_summary": history_summary,
-            "active_task": active_task_dump,
-            "schema_sig": schema_sig,
-            "today": today,
-        })
+        try:
+            instructions = (prompt | llm | parser).invoke({
+                "user_message": state['user_message'],
+                "history_summary": history_summary,
+                "active_task": active_task_dump,
+                "schema_sig": schema_sig,
+                "today": today,
+            })
+        except Exception as parse_error:
+            logger.warning("JSON 파싱 실패, 재시도: %s", parse_error)
+            # 재시도 (더 강한 프롬프트로)
+            retry_prompt = prompt_template + "\n\n**REMINDER: Output must be valid JSON only!**"
+            retry_template = ChatPromptTemplate.from_template(
+                template=retry_prompt,
+                partial_variables={"format_instructions": parser.get_format_instructions()}
+            )
+            instructions = (retry_template | llm | parser).invoke({
+                "user_message": state['user_message'],
+                "history_summary": history_summary,
+                "active_task": active_task_dump,
+                "schema_sig": schema_sig,
+                "today": today,
+            })
 
         logger.info("✅ 계획 수립 성공: tool_calls=%s, response_instruction=%s", 
                    len(instructions.tool_calls or []), 
