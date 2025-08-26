@@ -29,7 +29,7 @@ async def new_chat_stream(request: NewChatRequest = Body(...)):
 @router.post("/stream")
 async def chat_stream(request: ChatRequest = Body(...)):
 
-    if mock_response := get_mock_response(request.user_message):
+    if mock_response := get_mock_response(request.user_message, request.chat_id):
         final_stream = mock_stream_with_save(request.chat_id, request.user_message, mock_response)
         return StreamingResponse(final_stream, media_type="text/event-stream")
 

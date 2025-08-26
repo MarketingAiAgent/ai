@@ -88,3 +88,91 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
     # 완료 신호
   payload = {"type": "done"}
   yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def mock_brand_test(chat_id: str) -> AsyncGenerator[str, None]:
+    """[테스트] brand에 대한 mock 응답"""
+    from app.database.promotion_slots import update_state
+    import asyncio
+    
+    # chat_id가 제공된 경우 slot 업데이트
+    if chat_id:
+        try:
+            from app.database.promotion_slots import get_or_create_state
+            # 먼저 state가 존재하는지 확인하고 없으면 생성
+            get_or_create_state(chat_id)
+            # 그 다음 업데이트
+            result = update_state(chat_id, {"target_type": "brand"})
+            print(f"Updated slot for chat_id {chat_id}: matched_count={result.matched_count}")
+        except Exception as e:
+            print(f"Error updating slot for chat_id {chat_id}: {e}")
+    
+    # 응답 메시지
+    message = '''
+브랜드 타입으로 프로모션 슬롯이 설정되었습니다.
+target_type: brand
+'''
+    
+    payload = {"type": "start"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    
+    # 스트리밍 형태로 응답
+    for char in message:
+        payload = {
+            "type": "chunk",
+            "content": char
+        }
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.02)  # 타이핑 효과
+    
+    # plan 타입 데이터 전송
+    payload = {"type": "plan", "content": "brand"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    
+    # 완료 신호
+    payload = {"type": "done"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def mock_category_test(chat_id: str) -> AsyncGenerator[str, None]:
+    """[테스트] category에 대한 mock 응답"""
+    from app.database.promotion_slots import update_state
+    import asyncio
+    
+    # chat_id가 제공된 경우 slot 업데이트
+    if chat_id:
+        try:
+            from app.database.promotion_slots import get_or_create_state
+            # 먼저 state가 존재하는지 확인하고 없으면 생성
+            get_or_create_state(chat_id)
+            # 그 다음 업데이트
+            result = update_state(chat_id, {"target_type": "category"})
+            print(f"Updated slot for chat_id {chat_id}: matched_count={result.matched_count}")
+        except Exception as e:
+            print(f"Error updating slot for chat_id {chat_id}: {e}")
+    
+    # 응답 메시지
+    message = '''
+카테고리 타입으로 프로모션 슬롯이 설정되었습니다.
+target_type: category
+'''
+    
+    payload = {"type": "start"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    
+    # 스트리밍 형태로 응답
+    for char in message:
+        payload = {
+            "type": "chunk",
+            "content": char
+        }
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.02)  # 타이핑 효과
+    
+    # plan 타입 데이터 전송
+    payload = {"type": "plan", "content": "category"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    
+    # 완료 신호
+    payload = {"type": "done"}
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

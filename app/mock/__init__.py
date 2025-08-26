@@ -2,12 +2,13 @@ from typing import Optional, AsyncGenerator
 from app.core.config import settings
 from .chat import  mock_suggestion
 
-def get_mock_response(message: str) -> Optional[AsyncGenerator[str, None]]:
+def get_mock_response(message: str, chat_id: str = None) -> Optional[AsyncGenerator[str, None]]:
     """
     테스트 메시지면 mock 응답 반환, 아니면 None
     
     Args:
         message: 사용자 메시지
+        chat_id: 채팅 ID (slot 업데이트에 필요)
         
     Returns:
         Mock 응답 스트림 또는 None
@@ -15,9 +16,13 @@ def get_mock_response(message: str) -> Optional[AsyncGenerator[str, None]]:
     if not settings.ENABLE_MOCK_MODE:
         return None
     
+    from .chat import mock_brand_test, mock_category_test
+    
     # 테스트 패턴과 해당하는 mock 함수 매핑
     patterns = {
-        "[테스트용] 최종 확인": mock_suggestion,
+        "[테스트용] 최종 확인": lambda: mock_suggestion(),
+        "[테스트] brand": lambda: mock_brand_test(chat_id),
+        "[테스트] category": lambda: mock_category_test(chat_id),
     }
     
     # 패턴 매칭
@@ -59,5 +64,7 @@ async def mock_stream_with_save(chat_id: str, user_message: str, mock_stream: As
         save_chat_message(
             chat_id=chat_id,
             user_message=user_message,
-            agent_message=final_agent_message
+            agent_message=final_agent_message,
+            graph_data=None,
+            plan_data=None
         )
