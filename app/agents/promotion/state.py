@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from app.agents.orchestrator.state import PromotionSlots
 
 ASK_PROMPT_MAP = {
-    "target_type": "타겟 종류를 선택해 주세요. (brand | category)",
+    "target_type": "프로모션 종류를 선택해 주세요. 브랜드 대상 프로모션과 상품 대상 프로모션 기능을 지원합니다.",
     "brand": "타겟 브랜드를 알려주실 수 있을까요?",
     "target": "타겟 카테고리/고객군을 알려주실 수 있을까요?",
     "objective": "이번 프로모션의 목표(예: 매출 증대, 신규 고객 유입)를 알려주실 수 있을까요?",

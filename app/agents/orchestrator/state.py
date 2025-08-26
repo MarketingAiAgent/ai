@@ -17,7 +17,7 @@ class PromotionSlotUpdate(BaseModel):
     target: Optional[str] = None
     objective: Optional[str] = None
     duration: Optional[str] = None
-    selected_product: Optional[str] = None
+    selected_product: Optional[List[str]] = None
     product_options: Optional[List[str]] = None
     
 class ActiveTask(BaseModel):

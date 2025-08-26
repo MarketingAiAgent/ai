@@ -129,7 +129,16 @@ def _merge_slots(state: OrchestratorState, updates: Dict[str, Any]) -> Promotion
     base = current.model_dump()
     for k, v in updates.items():
         if v not in (None, "", []):
-            base[k] = v
+            # 리스트 타입 필드들은 기존 값과 병합
+            if k in ("selected_product", "product_options") and isinstance(v, list):
+                existing = base.get(k, [])
+                if isinstance(existing, list):
+                    # 중복 제거하면서 병합
+                    base[k] = list(set(existing + v))
+                else:
+                    base[k] = v
+            else:
+                base[k] = v
     merged = PromotionSlots(**base)
     if state.get("active_task"):
         state["active_task"].slots = merged
@@ -146,6 +155,9 @@ def slot_extractor_node(state: OrchestratorState):
     - 존재하는 값만 채우고, 없으면 null로 두세요.
     - target_type은 "brand" 또는 "category" 중 하나로만.
     - 날짜/기간은 원문 그대로 문자열로 유지.
+    - brand: 사용자가 선택한 브랜드명 (예: "나이키", "아디다스")
+    - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
+    - 브랜드명과 상품명을 명확히 구분하세요. 브랜드는 brand 필드에, 구체적인 상품은 selected_product에 넣으세요.
     - 출력은 반드시 다음 JSON 스키마를 따르세요:
       {format_instructions}
 
@@ -326,35 +338,61 @@ def _build_candidate_t2s_instruction(target_type: str, slots: PromotionSlots) ->
     end = datetime.now(ZoneInfo("Asia/Seoul")).date()
     start = end - timedelta(days=60)
     
-    # --- 👇 여기가 핵심적인 변경 부분입니다 ---
     # 브랜드 필터링 조건을 담을 변수
     brand_filter_instruction = ""
-    # slots에 brand 정보가 있으면 필터링 지시문을 생성합니다.
     if slots and slots.brand:
         brand_filter_instruction = f" 또한, 결과는 반드시 '{slots.brand}' 브랜드의 제품만 포함해야 합니다."
-    # ------------------------------------
  
     if target_type == "brand":
-        return textwrap.dedent(f"""
-        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.{brand_filter_instruction}
-        반드시 다음 컬럼 alias를 포함해야 합니다:
-        - brand_name
-        - revenue (최근 기간 매출)
-        - growth_pct (이전 동일기간 대비 증감율, %)
-        - gm (최근 기간 총이익률, 0~1)
-        - conversion_rate
-        - repeat_rate
-        - aov
-        - inventory_days
-        - return_rate
-        - category_name
-        - price_band
-        - gender_age
-        행은 브랜드별 1행입니다. 최근 기간 매출 상위 100개 내에서 반환해 주세요.
-        """).strip()
+        # 브랜드가 이미 선택된 경우 해당 브랜드의 상품 목록을 반환
+        if slots and slots.brand:
+            return textwrap.dedent(f"""
+            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 '{slots.brand}' 브랜드의 상품 레벨 후보 목록을 산출해 주세요.
+            반드시 다음 컬럼 alias를 포함해야 합니다:
+            - product_id
+            - product_name
+            - brand_name (반드시 '{slots.brand}'이어야 함)
+            - category_name
+            - revenue (최근 기간 매출)
+            - growth_pct (이전 동일기간 대비 증감율, %)
+            - gm (최근 기간 총이익률, 0~1)
+            - conversion_rate
+            - repeat_rate
+            - aov
+            - inventory_days
+            - return_rate
+            - price_band
+            - gender_age
+            행은 상품별 1행입니다. '{slots.brand}' 브랜드의 최근 기간 매출 상위 100개 상품을 반환해 주세요.
+            """).strip()
+        else:
+            # 브랜드 선택 단계
+            return textwrap.dedent(f"""
+            최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 브랜드 레벨 후보 목록을 산출해 주세요.
+            반드시 다음 컬럼 alias를 포함해야 합니다:
+            - brand_name
+            - revenue (최근 기간 매출)
+            - growth_pct (이전 동일기간 대비 증감율, %)
+            - gm (최근 기간 총이익률, 0~1)
+            - conversion_rate
+            - repeat_rate
+            - aov
+            - inventory_days
+            - return_rate
+            - category_name
+            - price_band
+            - gender_age
+            행은 브랜드별 1행입니다. 최근 기간 매출 상위 100개 내에서 반환해 주세요.
+            """).strip()
     else:
+        # 카테고리 타입
+        if slots and slots.target:
+            category_filter = f" 또한, 결과는 반드시 '{slots.target}' 카테고리의 제품만 포함해야 합니다."
+        else:
+            category_filter = ""
+            
         return textwrap.dedent(f"""
-        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 카테고리/상품 레벨 후보 목록을 산출해 주세요.
+        최근 기간 {start}~{end}와 직전 동일 기간을 비교하여 카테고리/상품 레벨 후보 목록을 산출해 주세요.{category_filter}
         가능한 경우 다음 컬럼 alias를 포함하세요:
         - product_id
         - product_name
@@ -712,7 +750,7 @@ def response_generator_node(state: OrchestratorState):
     - youtuber_trend_results: Supabase 뷰티 유튜버 트렌드 결과(JSON).
 
     [작성 지침]
-    1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (brand | category)")
+    1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요. (예: "타겟 종류를 선택해 주세요. (bra")
     2) 위 1번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
     3) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)

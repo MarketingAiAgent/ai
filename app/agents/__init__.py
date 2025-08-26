@@ -23,11 +23,21 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
     buffer = None 
     
     TOOL_NAME_MAP = {
-        "t2s": "데이터베이스 조회",
-        "tavily_search": "웹 검색",
-        "scrape_webpages": "웹페이지 분석",
-        "marketing_trend_search": "마케팅 트렌드 분석",
-        "beauty_youtuber_trend_search": "뷰티 트렌드 분석",
+        "t2s": "데이터베이스 조회 중...",
+        "tavily_search": "웹 검색 중...",
+        "scrape_webpages": "웹페이지 내용 추출 중...",
+        "marketing_trend_search": "마케팅 트렌드 지식DB 조회 중...",
+        "beauty_youtuber_trend_search": "뷰티 트렌드 지식DB 조회 중...",
+    }
+    
+    NODE_NAME_MAP = {
+        "planner": "응답 계획 수립 중...",
+        "slot_extractor": "프로모션 구성 시작...",
+        "action_state": "다음 행동 선택 중...",
+        "options_generator": "선택지 탐색 중...",
+        "tool_executor": "정보 탐색 툴 선택 중...",
+        "visualizer": "그래프 생성 중...",
+        "response_generator": "응답 생성 중...",
     }
 
     try:
@@ -60,7 +70,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                     display_name = TOOL_NAME_MAP.get(tool_name, tool_name)
                     tool_payload = {
                         "type": "state",
-                        "content": f"{display_name} 실행 중..."
+                        "content": f"{display_name}"
                     }
                     yield f"data: {json.dumps(tool_payload, ensure_ascii=False)}\n\n"
                 
@@ -69,9 +79,10 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                 
             if kind=='on_chain_start':
                 if current_node not in ["__start__", "__end__"]:
+                    node_display_name = NODE_NAME_MAP.get(current_node, current_node)
                     state_payload = {
                         "type": "state",
-                        "content": f"{current_node} 노드 수행 중..."
+                        "content": f"{node_display_name}"
                     }
                     yield f"data: {json.dumps(state_payload, ensure_ascii=False)}\n\n"
             
