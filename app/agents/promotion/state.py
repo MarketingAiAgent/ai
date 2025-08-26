@@ -25,9 +25,17 @@ def get_action_state(
                 "missing_slots": [], "ask_prompts": [], "payload": {}}
 
     if not _is_filled(slots.target_type):
+        # target_type와 duration을 함께 물어봄
+        ask_prompts = [ASK_PROMPT_MAP["target_type"]]
+        missing_slots = ["target_type"]
+        
+        if not _is_filled(slots.duration):
+            ask_prompts.append(ASK_PROMPT_MAP["duration"])
+            missing_slots.append("duration")
+        
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
-            "missing_slots": ["target_type"], "ask_prompts": [ASK_PROMPT_MAP["target_type"]],
+            "missing_slots": missing_slots, "ask_prompts": ask_prompts,
             "payload": {},
         }
 
@@ -45,6 +53,17 @@ def get_action_state(
     # target은 필수가 아님 - 제거
     # if not _is_filled(slots.target):
     #     ordered_missing.append("target")
+
+    # focus가 선택되었지만 해당 focus의 상품이 선택되지 않은 경우
+    if _is_filled(slots.focus) and not _is_filled(slots.selected_product):
+        focus_label = "브랜드" if slots.target_type == "brand" else "카테고리"
+        return {
+            "intent_type": "promotion",
+            "status": "ask_for_product",
+            "missing_slots": ["selected_product"],
+            "ask_prompts": [f"{slots.focus} {focus_label}의 어떤 제품으로 프로모션을 진행할까요? 아래 추천 목록에서 선택하시거나 직접 입력해주세요."],
+            "payload": slots.model_dump(),
+        }
     
     if not _is_filled(slots.duration):
         ordered_missing.append("duration")
@@ -64,16 +83,6 @@ def get_action_state(
             "payload": {},
         }
 
-    # focus가 선택되었지만 해당 focus의 상품이 선택되지 않은 경우
-    if _is_filled(slots.focus) and not _is_filled(slots.selected_product):
-        focus_label = "브랜드" if slots.target_type == "brand" else "카테고리"
-        return {
-            "intent_type": "promotion",
-            "status": "ask_for_product",
-            "missing_slots": ["selected_product"],
-            "ask_prompts": [f"{slots.focus} {focus_label}의 어떤 제품으로 프로모션을 진행할까요? 아래 추천 목록에서 선택하시거나 직접 입력해주세요."],
-            "payload": slots.model_dump(),
-        }
 
     # 기본 정보는 모두 채워졌지만 트렌드 반영 여부가 결정되지 않은 경우
     if slots.wants_trend is None:

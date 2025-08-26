@@ -1135,6 +1135,8 @@ def response_generator_node(state: OrchestratorState):
     [작성 지침]
     1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요.
     1-1) **중복 질문 방지**: 이미 채워진 슬롯에 대해서는 절대 재질문하지 마세요. ask_prompts에 있어도 이미 답변된 내용이면 건너뛰세요.
+    1-2) **진행 상황 정확히 파악**: action_decision의 payload나 missing_slots를 보고 현재 몇 번째 질문인지 정확히 판단하세요. 첫 질문이면 "현재까지 수집했다"는 식의 표현을 사용하지 마세요.
+    1-3) **"마지막" 표현 주의**: 프로모션 질문 순서는 ①프로모션종류 ②브랜드/카테고리 ③기간 ④상품선택 ⑤트렌드반영 입니다. 트렌드반영 질문을 할 때만 "마지막으로"라는 표현을 사용하세요.
     2) **프로모션 완성 규칙**: 
        - `action_decision`의 `status`가 "start_promotion"인 경우, 완성된 프로모션 슬롯 정보를 기반으로 프로모션 내용을 정리해서 보여주고, 마지막 문단에 반드시 "최신 트렌드나 유행어를 반영해서 프로모션을 만들길 원하시나요?"라고 질문하세요.
        - `action_decision`의 `status`가 "create_final_plan"인 경우, 트렌드 반영 없이 완성된 프로모션 기획서를 제작하세요.
@@ -1146,6 +1148,7 @@ def response_generator_node(state: OrchestratorState):
        - wants_trend: 트렌드 반영 질문만 (사용자가 먼저 언급하지 않는 한 굳이 물어보지 마세요)
        - objective: 사용자가 명시적으로 언급한 경우에만 처리 (굳이 질문하지 마세요)
        - 금지 필드: budget, cost, 예산 등 (존재하지 않는 필드들)
+       - **중요**: missing_slots 리스트를 확인해서 남은 필드가 얼마나 있는지 파악하고, 적절한 톤으로 질문하세요.
     5) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)
        - `llm_reasons`가 없으면 기존 `reasons`, `business_reasons` 등을 사용하세요
