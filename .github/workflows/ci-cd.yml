@@ -53,7 +53,7 @@ jobs:
             --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
             --from-literal=TAVILY_API_KEY='${{ secrets.TAVILY_API_KEY }}' \
             --from-literal=CONN_STR='${{ secrets.CONN_STR }}' \
-            --from-literal=SCHEMA_INFO=./schema_info.txt \
+            --from-file=SCHEMA_INFO=./schema_info.txt \
             --dry-run=client -o yaml | kubectl apply -f -
 
       # 7. Kubernetes에 배포
