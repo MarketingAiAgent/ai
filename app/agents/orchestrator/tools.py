@@ -8,6 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.database.supabase import supabase_client, embeddings
 from app.core.config import settings 
+from app.utils.blob_storage import upload_dataframe_to_blob
 
 from app.agents.text_to_sql.__init__ import call_sql_generator
 from .state import *
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _tavily = TavilySearch(max_results=5)
 
-def run_t2s_agent_with_instruction(state: OrchestratorState, instruction: str): 
+def run_t2s_agent_with_instruction(state: OrchestratorState, instruction: str, output_type: str = "table"): 
     result = call_sql_generator(
         message=instruction, 
         conn_str=state["conn_str"], 
@@ -29,7 +30,23 @@ def run_t2s_agent_with_instruction(state: OrchestratorState, instruction: str):
             table = json.loads(table)
         except Exception:
             table = {"rows": [], "columns": [], "row_count": 0}
-    return ensure_table_payload(table)
+    
+    # output_type을 결과에 추가
+    table_with_output_type = ensure_table_payload(table)
+    table_with_output_type["output_type"] = output_type
+    
+    # export 타입일 경우 blob storage에 업로드
+    if output_type == "export" and result.get("dataframe") is not None:
+        logger.info("📤 Export 타입이므로 Blob Storage에 업로드합니다...")
+        download_url = upload_dataframe_to_blob(result["dataframe"])
+        if download_url:
+            table_with_output_type["download_url"] = download_url
+            logger.info(f"✅ 파일 업로드 완료: {download_url[:100]}...")
+        else:
+            logger.error("❌ 파일 업로드 실패")
+            table_with_output_type["download_url"] = None
+    
+    return table_with_output_type
 
 def run_tavily_search(query: str, max_results: int = 5) -> Dict[str, Any]:
     """

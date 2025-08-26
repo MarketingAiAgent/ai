@@ -28,7 +28,7 @@ class ActiveTask(BaseModel):
 class OrchestratorInstruction(BaseModel):
     tool_calls: Optional[List[Dict[str, Any]]] = Field(
         None, 
-        description="실행할 도구 목록. 예: [{'tool': 't2s', 'args': {'instruction': '...'}}]"
+        description="실행할 도구 목록. 예: [{'tool': 't2s', 'args': {'instruction': '...', 'output_type': 'visualize'}}]"
     )
     response_generator_instruction: str = Field(description="응답 생성 에이전트가 어떤 응답을 해야하는지 지시")
 

@@ -16,3 +16,4 @@ class SQLState(BaseModel):
     query: Optional[Any] = None
     data_json: Optional[Any] = None
     graph_json: Optional[str] = None
+    dataframe: Optional[Any] = None  # DataFrame 객체 (export용)

@@ -55,6 +55,9 @@ def call_sql(state: SQLState):
             "columns": [str(c) for c in preview.columns],  # ✅ 열 이름
             "row_count": int(df.shape[0]),                 # ✅ 전체 행 수
         }
+        
+        # DataFrame 객체도 저장 (export용)
+        state.dataframe = df
 
         logger.info(
             "SQL 실행 성공 | row_count=%s, columns=%s",

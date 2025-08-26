@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     CONN_STR: str
     SCHEMA_INFO: str
     
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
+    AZURE_STORAGE_CONTAINER_NAME: str = "exports"
+    
     # Mock 모드 설정 (기본값: False)
     ENABLE_MOCK_MODE: bool = True
     

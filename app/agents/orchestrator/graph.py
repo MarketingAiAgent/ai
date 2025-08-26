@@ -220,7 +220,11 @@ def planner_node(state: OrchestratorState):
     - 필요하다면 **여러 개의 도구를 하나의 배열에 동시에 요청**할 수 있습니다.
     - 각 도구 객체는 `{{"tool": "도구명", "args": {{"파라미터명": "값"}}}}` 형식을 따라야 합니다.
     - 사용 가능한 도구 목록과 형식:
-      - DB 조회: `{{"tool": "t2s", "args": {{"instruction": "SQL로 변환할 자연어 질문"}}}}`
+      - DB 조회: `{{"tool": "t2s", "args": {{"instruction": "SQL로 변환할 자연어 질문", "output_type": "export|visualize|table"}}}}`
+        - output_type 선택 가이드라인:
+          * "export": 데이터를 파일로 다운로드해야 하는 경우 (예시: "클릭율이 감소 중인 유저 ID 목록", "이 데이터를 파일로 저장해줘", "리스트를 다운로드하고 싶어")
+          * "visualize": 데이터 시각화가 필요한 경우 (예시: "비교"를 해야하는 질문, "상위 10개 브랜드 알려줘", "추세"에 대한 질문, "시각화해서 보여줘", "차트로 분석해줘", "그래프로 비교해줘")
+          * "table": 단순 팩트 확인이나 표 형태로 보기 원하는 경우 (예: "작년 매출이 얼마였지?", "데이터를 표로 보여줘")
       - 웹 검색: `{{"tool": "tavily_search", "args": {{"query": "검색어", "max_results": 5}}}}`
       - 웹 스크래핑: `{{"tool": "scrape_webpages", "args": {{"urls": ["https://...", ...]}}}}`
       - 마케팅 트렌드: `{{"tool": "marketing_trend_search", "args": {{"question": "질문"}}}}`
@@ -244,6 +248,25 @@ def planner_node(state: OrchestratorState):
     - One-off answers: set `tool_calls` as needed.
     - Out-of-scope: both tools null, and provide short polite guidance with [OUT_OF_SCOPE].
     - Output must be concise, Korean polite style.
+    
+    ## t2s output_type 선택 예시
+    - "export" 선택 시나리오:
+      * "유저 ID 목록을 엑셀로 내려줘" → output_type: "export"
+      * "이 데이터를 파일로 저장해줘" → output_type: "export"  
+      * "리스트를 다운로드하고 싶어" → output_type: "export"
+      * "전체 데이터를 파일로 받고 싶어" → output_type: "export"
+    - "visualize" 선택 시나리오:
+      * "추세를 그래프로 보여줘" → output_type: "visualize"
+      * "시각화해서 보여줘" → output_type: "visualize"
+      * "차트로 분석해줘" → output_type: "visualize"
+      * "그래프로 비교해줘" → output_type: "visualize"
+      * "트렌드를 시각적으로 보여줘" → output_type: "visualize"
+    - "table" 선택 시나리오:
+      * "작년 매출이 얼마였지?" → output_type: "table"
+      * "상위 10개 브랜드 알려줘" → output_type: "table"
+      * "데이터를 표로 보여줘" → output_type: "table"
+      * "매출 순위를 알려줘" → output_type: "table"
+      * "어떤 브랜드가 제일 잘 팔렸어?" → output_type: "table"
 
     User Message: "{user_message}"
     """)
@@ -367,7 +390,7 @@ def options_generator_node(state: OrchestratorState):
     logger.info("📝 생성된 T2S 인스트럭션: %s", t2s_instr[:200] + "..." if len(t2s_instr) > 200 else t2s_instr)
     
     logger.info("🚀 T2S 에이전트 실행 중...")
-    table = run_t2s_agent_with_instruction(state, t2s_instr)
+    table = run_t2s_agent_with_instruction(state, t2s_instr, "visualize")  # 옵션 생성은 항상 시각화 포함
     rows = table["rows"]
     
     logger.info("📊 T2S 결과 분석:")
@@ -536,7 +559,7 @@ def tool_executor_node(state: OrchestratorState):
         return {"tool_results": None}
 
     tool_map = {
-        "t2s": lambda args: run_t2s_agent_with_instruction(state, args.get("instruction", "")),
+        "t2s": lambda args: run_t2s_agent_with_instruction(state, args.get("instruction", ""), args.get("output_type", "table")),
         "tavily_search": lambda args: run_tavily_search(args.get("query", ""), args.get("max_results", 5)),
         "scrape_webpages": lambda args: scrape_webpages(args.get("urls", [])),
         "marketing_trend_search": lambda args: marketing_trend_search(args.get("question", "")),
@@ -582,8 +605,22 @@ def _should_visualize_router(state: OrchestratorState) -> str:
     # tool_results 안에 t2s로 시작하고 데이터가 있는 결과가 있는지 확인
     for key, value in tool_results.items():
         if key.startswith("t2s") and value and value.get("rows"):
-            logger.info("T2S 결과가 있어 시각화를 시도합니다.")
-            return "visualize"
+            output_type = value.get("output_type", "table")
+            logger.info(f"T2S 결과가 있고 output_type이 '{output_type}'입니다.")
+            
+            # output_type에 따라 시각화 여부 결정
+            if output_type == "visualize":
+                logger.info("시각화를 시도합니다.")
+                return "visualize"
+            elif output_type == "table":
+                logger.info("표만 표시하므로 시각화를 건너뜁니다.")
+                return "skip_visualize"
+            elif output_type == "export":
+                logger.info("파일 내보내기이므로 시각화를 건너뜁니다.")
+                return "skip_visualize"
+            else:
+                logger.info("기본값으로 표만 표시합니다.")
+                return "skip_visualize"
             
     logger.info("T2S 결과가 없어 시각화를 건너뜁니다.")
     return "skip_visualize"
@@ -634,6 +671,8 @@ def response_generator_node(state: OrchestratorState):
     )
 
     t2s_table = None
+    t2s_output_type = "table"  # 기본값
+    t2s_download_url = None
     web_search = None
     scraped_pages = None
     marketing_trend_results = None
@@ -641,6 +680,8 @@ def response_generator_node(state: OrchestratorState):
     for key, value in tr.items():
         if key.startswith("t2s") and isinstance(value, dict) and "rows" in value:
             t2s_table = value
+            t2s_output_type = value.get("output_type", "table")
+            t2s_download_url = value.get("download_url")
         elif key.startswith("tavily_search"): 
             web_search = value
         elif key.startswith("scrape_webpages"):
@@ -679,7 +720,10 @@ def response_generator_node(state: OrchestratorState):
        - 모든 수치는 어떤 수치인지 구체적인 언급을 해주세요
        - 마지막에 '기타(직접 입력)'도 추가합니다    
     4) web_search / scraped_pages / supabase 결과가 있으면, 핵심 근거를 2~4줄로 요약해 설명에 녹여 주세요. 원문 인용은 1~2문장 이하로 제한.
-    5) t2s_table이 있으면 상위 10행 미리보기 표를 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
+    5) t2s_table 처리 규칙:
+       - output_type이 "export"인 경우: 표나 시각화를 포함하지 말고, 데이터 준비가 완료되었음을 안내하세요. 다운로드 링크는 시스템에서 자동으로 추가됩니다.
+       - output_type이 "table"인 경우: 상위 10행 미리보기 표만 포함하되, 없는 수치는 만들지 마세요. 표를 시작하는 부분은 [TABLE_START] 표가 끝나는 부분은 [TABLE_END] 라는 텍스트를 붙여서 어디부터 어디가 테이블인지 알 수 있게 해주세요.
+       - output_type이 "visualize"인 경우: 상위 10행 미리보기 표를 포함하고, 시각화 결과가 있다면 함께 제공하세요.
     6) 전체적으로 구조화된 형식을 유지하세요.
 
     [입력 데이터]
@@ -694,6 +738,11 @@ def response_generator_node(state: OrchestratorState):
 
     - t2s_table (JSON):
     {t2s_table_json}
+
+    - t2s_output_type:
+    {t2s_output_type}
+
+
 
     - web_search (JSON):
     {web_search_json}
@@ -722,6 +771,8 @@ def response_generator_node(state: OrchestratorState):
         "action_decision_json": to_json(action_decision),
         "option_candidates_json": to_json(option_candidates),
         "t2s_table_json": to_json(t2s_table),
+        "t2s_output_type": t2s_output_type,
+
         "web_search_json": to_json(web_search),
         "scraped_pages_json": to_json(scraped_pages),
         "marketing_trend_results_json": to_json(marketing_trend_results),
@@ -730,6 +781,17 @@ def response_generator_node(state: OrchestratorState):
     })
 
     final_response = getattr(final_text, "content", None) or str(final_text)
+    
+    # export 타입일 때 다운로드 링크 추가
+    if t2s_output_type == "export" and t2s_download_url:
+        download_link = f"\n\n[CSV 다운로드]({t2s_download_url})"
+        final_response += download_link
+        logger.info(f"Export 링크 추가됨: {t2s_download_url}")
+    elif t2s_output_type == "export" and not t2s_download_url:
+        error_message = "\n\n⚠️ 파일 업로드 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        final_response += error_message
+        logger.warning("Export 요청이지만 다운로드 URL이 없습니다.")
+    
     logger.info(f"최종 결과(L):\n{final_response}")
     history = state.get("history", [])
     history.append({"role": "user", "content": state.get("user_message", "")})

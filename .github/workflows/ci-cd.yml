@@ -53,6 +53,8 @@ jobs:
             --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
             --from-literal=TAVILY_API_KEY='${{ secrets.TAVILY_API_KEY }}' \
             --from-literal=CONN_STR='${{ secrets.CONN_STR }}' \
+            --from-literal=AZURE_STORAGE_CONNECTION_STRING='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
+            --from-literal=AZURE_STORAGE_CONTAINER_NAME='${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}' \
             --from-file=SCHEMA_INFO=./schema_info.txt \
             --dry-run=client -o yaml | kubectl apply -f -
 
