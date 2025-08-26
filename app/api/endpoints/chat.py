@@ -114,6 +114,8 @@ def create_plan(request: CreatePlanRequest):
         # plan_data에서 final_exam 추출하여 반환
         final_exam = plan_data.get('final_exam', [])
         if final_exam:
+            response = final_exam[0]
+            response['type'] = promotion_slots.get('target_type', 'brand')
             return final_exam[0]  # 첫 번째 기획서 반환
         else:
             # fallback: mock 데이터 사용
