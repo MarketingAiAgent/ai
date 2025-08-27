@@ -92,9 +92,11 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                 final_state = event.get("data", {}).get("output")
                 if final_state:
                     tool_results = final_state.get("tool_results", {})
-                    t2s_result = tool_results.get("t2s")
-                    if t2s_result and isinstance(t2s_result, dict) and "download_url" in t2s_result:
-                        download_url = t2s_result.get("download_url")  
+                    # t2s 결과를 찾습니다. 키가 t2s_0, t2s_1 등의 형태로 저장됨
+                    for key, value in tool_results.items():
+                        if key.startswith("t2s") and isinstance(value, dict) and "download_url" in value:
+                            download_url = value.get("download_url")
+                            break  
                                                  
             if current_node == "tool_executor":
                 # 노드로 들어가는 입력(state)에서 tool_calls를 추출합니다.
@@ -175,7 +177,8 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
             yield f"data: {json.dumps(graph, ensure_ascii=False)}\n\n"
         
         if download_url:
-            download_text = f"\n\n[다운로드 링크]({download_url})"
+            logger.info(f"===== ✔︎ 다운로드 링크 생성됨 =====\n\n Download URL: \n {download_url}")
+            download_text = f"\n\n[CSV 다운로드 링크]({download_url})"
             for c in download_text:
                 if c == "\n": c = "\\n"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=False)}\n\n"

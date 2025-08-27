@@ -1183,16 +1183,6 @@ def response_generator_node(state: OrchestratorState):
     else:
         final_response = str(final_text)
     
-    # export 타입일 때 다운로드 링크 추가
-    if t2s_output_type == "export" and t2s_download_url:
-        download_link = f"\n\n[CSV 다운로드]({t2s_download_url})"
-        final_response += download_link
-        logger.info(f"Export 링크 추가됨: {t2s_download_url}")
-    elif t2s_output_type == "export" and not t2s_download_url:
-        error_message = "\n\n⚠️ 파일 업로드 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-        final_response += error_message
-        logger.warning("Export 요청이지만 다운로드 URL이 없습니다.")
-    
     logger.info(f"✅ 응답 생성 완료 (길이: {len(final_response)}자)")
     logger.info(f"최종 결과 미리보기: {final_response}...")
     
