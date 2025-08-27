@@ -469,18 +469,19 @@ def planner_node(state: OrchestratorState):
             template=prompt_template,
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
-        # llm = ChatGoogleGenerativeAI(
-        #     model="gemini-2.5-flash",
-        #     temperature=0,
-        #     model_kwargs={"response_format": {"type": "json_object"}},
-        #     api_key=settings.GOOGLE_API_KEY
-        # )
-
-        llm = ChatAnthropic(
-            model="claude-sonnet-4-20250514", 
-            temperature=0.1,
-            api_key=settings.ANTHROPIC_API_KEY
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0,
+            model_kwargs={"response_format": {"type": "json_object"}},
+            api_key=settings.GOOGLE_API_KEY
         )
+
+        # llm = ChatAnthropic(
+        #     model="claude-sonnet-4-20250514", 
+        #     temperature=0.1,
+        #     max_tokens=8192,  # 넉넉한 토큰 제한 설정
+        #     api_key=settings.ANTHROPIC_API_KEY
+        # )
 
         logger.info("LLM 호출 중...")
         try:
@@ -971,10 +972,17 @@ def promotion_final_generator(state: OrchestratorState, action_decision: dict, t
     """)
     
     # Claude-4-Sonnet 사용
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-20250514", 
-        temperature=0.1,
-        api_key=settings.ANTHROPIC_API_KEY
+    # llm = ChatAnthropic(
+    #     model="claude-sonnet-4-20250514", 
+    #     temperature=0.1,
+    #     max_tokens=8192,  # 넉넉한 토큰 제한 설정
+    #     api_key=settings.ANTHROPIC_API_KEY
+    # )
+    
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        api_key=settings.GOOGLE_API_KEY
     )
     
     final_text = llm.invoke(prompt_tmpl)
@@ -1128,10 +1136,17 @@ def response_generator_node(state: OrchestratorState):
 
     prompt = ChatPromptTemplate.from_template(prompt_tmpl)
     # llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-20250514", 
-        temperature=0.1,
-        api_key=settings.ANTHROPIC_API_KEY
+    # llm = ChatAnthropic(
+    #     model="claude-sonnet-4-20250514", 
+    #     temperature=0.1,
+    #     max_tokens=8192,  # 넉넉한 토큰 제한 설정
+    #     api_key=settings.ANTHROPIC_API_KEY
+    # )
+
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        api_key=settings.GOOGLE_API_KEY
     )
         
     final_text = (prompt | llm).invoke({
