@@ -244,7 +244,7 @@ def slot_extractor_node(state: OrchestratorState):
     - target_type은 "brand" 또는 "category" 중 하나로만.
     - 날짜/기간은 원문 그대로 문자열로 유지.
     - focus: 사용자가 선택한 브랜드명 또는 카테고리명 (예: "나이키", "스포츠웨어")
-    - target: 타겟 고객층 - 명시적으로 언급된 경우에만 (예: "20대 남성", "직장인")
+    - target: 타겟 고객층 - 명시적으로 언급된 경우에만 적용 (예: "20대 남성", "직장인")
     - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
     - wants_trend: 트렌드 반영 여부 (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
     - objective: 프로모션 목표 - 명시적으로 언급된 경우에만 (예: "매출 증대", "신규 고객 유입")
@@ -302,6 +302,15 @@ def slot_extractor_node(state: OrchestratorState):
 
     merged = _merge_slots(state, updates)
     logger.info("State 슬롯 병합: %s", merged.model_dump())
+    
+    # wants_trend가 true로 설정되면 바로 트렌드 툴을 호출하도록 지시
+    if "wants_trend" in updates and updates["wants_trend"] is True:
+        logger.info("🌟 wants_trend=true 감지, 트렌드 수집 툴 호출 지시")
+        return {
+            "tool_results": {"slot_updates": updates},
+            "instructions": trend_planner_node(state)["instructions"]
+        }
+    
     return {"tool_results": {"slot_updates": updates}}
 
 def _planner_router(state: OrchestratorState) -> str:
@@ -420,7 +429,7 @@ def planner_node(state: OrchestratorState):
       - 뷰티 트렌드: `{{"tool": "beauty_youtuber_trend_search", "args": {{"question": "질문"}}}}`
     - **트렌드 반영 프로모션**: 다음 경우에 마케팅 트렌드 수집 툴들을 호출하세요:
       * wants_trend=true이고 필요 슬롯이 모두 채워진 경우 
-      * 또는 이전 메시지가 트렌드 질문이고 현재 사용자가 긍정적으로 응답한 경우 (예: "예", "네", "응", "좋아", "해줘" 등)
+      * 또는 이전 AI 질문이 트렌드를 반영할지 물어본 질문이고 현재 사용자가 긍정적으로 응답한 경우 (예: "예", "네", "응", "좋아", "해줘" 등)
     - 도구 사용이 필요 없으면 `tool_calls` 필드를 null로 두세요.
 
     ## Time normalization
@@ -445,6 +454,7 @@ def planner_node(state: OrchestratorState):
     
     ## t2s output_type 선택 예시
     - "export" 선택 시나리오:
+      * "클릭율이 감소 중인 유저 ID 목록" → output_type: "export"
       * "유저 ID 목록을 엑셀로 내려줘" → output_type: "export"
       * "이 데이터를 파일로 저장해줘" → output_type: "export"  
       * "리스트를 다운로드하고 싶어" → output_type: "export"
@@ -1216,7 +1226,27 @@ workflow.add_conditional_edges(
     },
 )
 
-workflow.add_edge("slot_extractor", "action_state")
+def _slot_extractor_router(state: OrchestratorState) -> str:
+    """slot_extractor 결과에 따라 다음 노드 결정"""
+    instructions = state.get("instructions")
+    
+    # slot_extractor에서 wants_trend=true로 인해 트렌드 툴이 지시된 경우
+    if instructions and instructions.tool_calls and len(instructions.tool_calls) > 0:
+        logger.info("→ 트렌드 툴 호출 필요: tool_executor")
+        return "tool_executor"
+    
+    # 일반적인 경우: action_state로 이동하여 다음 단계 결정
+    logger.info("→ 액션 상태 확인: action_state")
+    return "action_state"
+
+workflow.add_conditional_edges(
+    "slot_extractor",
+    _slot_extractor_router,
+    {
+        "action_state": "action_state",
+        "tool_executor": "tool_executor",
+    },
+)
 workflow.add_conditional_edges(
     "action_state",
     _action_router,

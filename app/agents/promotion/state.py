@@ -28,11 +28,7 @@ def get_action_state(
         # target_type와 duration을 함께 물어봄
         ask_prompts = [ASK_PROMPT_MAP["target_type"]]
         missing_slots = ["target_type"]
-        
-        if not _is_filled(slots.duration):
-            ask_prompts.append(ASK_PROMPT_MAP["duration"])
-            missing_slots.append("duration")
-        
+                
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
             "missing_slots": missing_slots, "ask_prompts": ask_prompts,
@@ -68,30 +64,22 @@ def get_action_state(
     if not _is_filled(slots.duration):
         ordered_missing.append("duration")
 
-    if ordered_missing:
-        # 아직 채워야 할 기본 정보가 남은 경우
-        ask_prompts = []
-        for k in ordered_missing[:2]:
-            if k == "focus" and focus_key:
-                ask_prompts.append(ASK_PROMPT_MAP[focus_key])
-            else:
-                ask_prompts.append(ASK_PROMPT_MAP[k])
+    # if ordered_missing:
+    #     # 아직 채워야 할 기본 정보가 남은 경우
+    #     ask_prompts = []
+    #     for k in ordered_missing[:2]:
+    #         if k == "focus" and focus_key:
+    #             ask_prompts.append(ASK_PROMPT_MAP[focus_key])
+    #         else:
+    #             ask_prompts.append(ASK_PROMPT_MAP[k])
         
-        return {
-            "intent_type": "promotion", "status": "ask_for_slots",
-            "missing_slots": ordered_missing, "ask_prompts": ask_prompts,
-            "payload": {},
-        }
+    #     return {
+    #         "intent_type": "promotion", "status": "ask_for_slots",
+    #         "missing_slots": ordered_missing, "ask_prompts": ask_prompts,
+    #         "payload": {},
+    #     }
 
 
-    # 기본 정보는 모두 채워졌지만 트렌드 반영 여부가 결정되지 않은 경우
-    if slots.wants_trend is None:
-        return {
-            "intent_type": "promotion", "status": "start_promotion",
-            "missing_slots": [], "ask_prompts": [],
-            "payload": slots.model_dump(),
-        }
-    
     # 트렌드 반영을 원한다면 외부 데이터 수집 후 최종 기획서 생성
     if slots.wants_trend is True:
         return {
@@ -104,6 +92,14 @@ def get_action_state(
     if slots.wants_trend is False:
         return {
             "intent_type": "promotion", "status": "create_final_plan",
+            "missing_slots": [], "ask_prompts": [],
+            "payload": slots.model_dump(),
+        }
+    
+    # 기본 정보는 모두 채워졌지만 트렌드 반영 여부가 결정되지 않은 경우
+    if slots.wants_trend is None:
+        return {
+            "intent_type": "promotion", "status": "start_promotion",
             "missing_slots": [], "ask_prompts": [],
             "payload": slots.model_dump(),
         }
