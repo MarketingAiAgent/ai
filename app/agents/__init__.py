@@ -122,7 +122,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     for c in chunk.content:
-
+                        if c == "\n": c = "\\n"
                         if is_in_table:
                             buffer = buffer_inside_table
                             token = TOKEN_END
