@@ -166,6 +166,13 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
             model_kwargs={"response_format": {"type": "json_object"}},
             api_key=settings.GOOGLE_API_KEY
         )
+
+        # llm = ChatAnthropic(
+        #     model="claude-4-sonnet-20250219",
+        #     temperature=0.1,
+        #     model_kwargs={"response_format": {"type": "json_object"}},
+        #     api_key=settings.GOOGLE_API_KEY
+        # )
         
         logger.info("📤 LLM 호출 중... (프롬프트 크기: %d자)", len(prompt))
         response = llm.invoke(prompt)
@@ -234,7 +241,8 @@ def slot_extractor_node(state: OrchestratorState):
     user_message = state.get("user_message", "")
 
     if state.get("history"):
-        last_question = state.get("history")[-1].get("agent_message", "")
+        last_question = state.get("history")[-1]
+        logger.info("이전 AI 메시지: %s", last_question)
     else: 
         last_question = ""
     chat_id = state["chat_id"]
@@ -251,7 +259,7 @@ def slot_extractor_node(state: OrchestratorState):
     - focus: 사용자가 선택한 브랜드명 또는 카테고리명 (예: "나이키", "스포츠웨어")
     - target: 타겟 고객층 - 명시적으로 언급된 경우에만 적용 (예: "20대 남성", "직장인")
     - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
-    - wants_trend: 만약 이전 AI 메시지 마지막에 트렌드 반영 여부를 물었다면 사용자 메시지를 보고 wants_trend 값을 결정하세요. (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
+    - wants_trend: 만약 이전 AI 메시지 마지막에 최신 트렌드나 유행어 반영 여부를 물었다면 사용자 메시지를 보고 wants_trend 값을 Update 하세요. (예: "응", "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
     - objective: 프로모션 목표 - 명시적으로 언급된 경우에만 (예: "매출 증대", "신규 고객 유입")
     
     **금지사항:**
@@ -418,7 +426,7 @@ def planner_node(state: OrchestratorState):
       - Promotion flow (create/continue a promotion)
       - One-off answer (DB facts via t2s, or knowledge snippet)
       - Out-of-scope guidance
-    - If and only if it is **promotion flow**, prefix `response_generator_instruction` with "[PROMOTION]".
+    - If and only if it is **promotion flow**, your `response_generator_instruction` is "[PROMOTION]".
     - If it is **out-of-scope guidance**, prefix with "[OUT_OF_SCOPE]".
     - Otherwise (one-off answer), no prefix.
 
@@ -455,8 +463,8 @@ def planner_node(state: OrchestratorState):
 
     ## Decision rules
     - Promotion flow: do NOT call tools this turn. Just set `response_generator_instruction` (with [PROMOTION]).
-    - **EXCEPTION 1**: If active_task shows promotion is ready for trend application (wants_trend=true, all slots filled), then call trend tools instead of setting [PROMOTION].
-    - **EXCEPTION 2**: If user is responding positively to a trend question (check conversation history for recent trend question + current positive response), then call trend tools even if wants_trend is still None.
+    - Promotion flow: DO NOT give instruction just give '[PROMOTION]' and that is all you need to do.
+    - **EXCEPTION**: If active_task status is start_promotion, give only instruction about if user wants to apply trend or not 
     - One-off answers: set `tool_calls` as needed.
     - Out-of-scope: both tools null, and provide short polite guidance with [OUT_OF_SCOPE].
     - Output must be concise, Korean polite style.
@@ -488,6 +496,7 @@ def planner_node(state: OrchestratorState):
             template=prompt_template,
             partial_variables={"format_instructions": parser.get_format_instructions()}
         )
+
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             temperature=0,
@@ -1056,7 +1065,6 @@ def response_generator_node(state: OrchestratorState):
 
     t2s_table = None
     t2s_output_type = "table"  # 기본값
-    t2s_download_url = None
     web_search = None
     scraped_pages = None
     marketing_trend_results = None
@@ -1099,7 +1107,6 @@ def response_generator_node(state: OrchestratorState):
     1) **가장 중요한 규칙**: `action_decision` 객체가 있고, 그 안의 `ask_prompts` 리스트에 내용이 있다면, 당신의 최우선 임무는 해당 리스트의 질문을 사용자에게 하는 것입니다. 다른 모든 지시보다 이 규칙을 **반드시** 따라야 합니다. `ask_prompts`의 문구를 그대로 사용하거나, 살짝 더 자연스럽게만 다듬어 질문하세요.
     1-1) **중복 질문 방지**: 이미 채워진 슬롯에 대해서는 절대 재질문하지 마세요. ask_prompts에 있어도 이미 답변된 내용이면 건너뛰세요.
     1-2) **진행 상황 정확히 파악**: action_decision의 payload나 missing_slots를 보고 현재 몇 번째 질문인지 정확히 판단하세요. 첫 질문이면 "현재까지 수집했다"는 식의 표현을 사용하지 마세요.
-    1-3) **"마지막" 표현 주의**: 프로모션 질문 순서는 ①프로모션종류 ②브랜드/카테고리 ③기간 ④상품선택 ⑤트렌드반영 입니다. 트렌드반영 질문을 할 때만 "마지막으로"라는 표현을 사용하세요.
     2) **프로모션 완성 규칙**: 
        - `action_decision`의 `status`가 "start_promotion"인 경우, 완성된 프로모션 슬롯 정보를 기반으로 프로모션 내용을 정리해서 보여주고, 마지막 문단에 반드시 "최신 트렌드나 유행어를 반영해서 프로모션을 만들길 원하시나요?"라고 질문하세요.
        - `action_decision`의 `status`가 "create_final_plan"인 경우, 트렌드 반영 없이 완성된 프로모션 기획서를 제작하세요.
@@ -1107,10 +1114,6 @@ def response_generator_node(state: OrchestratorState):
        - **중요**: 사용자가 이미 트렌드 반영 여부에 대해 답변했다면 (wants_trend가 true/false로 설정됨), 같은 질문을 다시 하지 마세요.
     3) 위 1,2번 규칙에 해당하지 않는 경우에만, `instructions_text`를 주된 내용으로 삼아 답변을 생성합니다.
     4) **프로모션 필드 질문 규칙**: 
-       - 필수 필드: target_type, focus, duration, selected_product (반드시 물어봐야 함)
-       - wants_trend: 트렌드 반영 질문만 (사용자가 먼저 언급하지 않는 한 굳이 물어보지 마세요)
-       - objective: 사용자가 명시적으로 언급한 경우에만 처리 (굳이 질문하지 마세요)
-       - 금지 필드: budget, cost, 예산 등 (존재하지 않는 필드들)
        - **중요**: missing_slots 리스트를 확인해서 남은 필드가 얼마나 있는지 파악하고, 적절한 톤으로 질문하세요.
     5) `option_candidates`가 있으면 번호로 제시하고 각 2~4줄 근거를 붙입니다. 
        - 후보에 `llm_reasons` 필드가 있으면 그것을 우선 사용하세요 (LLM이 생성한 상세 근거)
@@ -1139,8 +1142,6 @@ def response_generator_node(state: OrchestratorState):
 
     - t2s_output_type:
     {t2s_output_type}
-
-
 
     - web_search (JSON):
     {web_search_json}
@@ -1235,27 +1236,8 @@ workflow.add_conditional_edges(
     },
 )
 
-def _slot_extractor_router(state: OrchestratorState) -> str:
-    """slot_extractor 결과에 따라 다음 노드 결정"""
-    instructions = state.get("instructions")
-    
-    # slot_extractor에서 wants_trend=true로 인해 트렌드 툴이 지시된 경우
-    if instructions and instructions.tool_calls and len(instructions.tool_calls) > 0:
-        logger.info("→ 트렌드 툴 호출 필요: tool_executor")
-        return "tool_executor"
-    
-    # 일반적인 경우: action_state로 이동하여 다음 단계 결정
-    logger.info("→ 액션 상태 확인: action_state")
-    return "action_state"
+workflow.add_edge("slot_extractor", "action_state")
 
-workflow.add_conditional_edges(
-    "slot_extractor",
-    _slot_extractor_router,
-    {
-        "action_state": "action_state",
-        "tool_executor": "tool_executor",
-    },
-)
 workflow.add_conditional_edges(
     "action_state",
     _action_router,

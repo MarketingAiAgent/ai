@@ -43,7 +43,7 @@ def get_action_state(
 
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
-            "missing_slots": ["duration"], "ask_prompts": ASK_PROMPT_MAP["duration"],
+            "missing_slots": ["duration"], "ask_prompts": [ASK_PROMPT_MAP["duration"]],
             "payload": slots.model_dump(),
         }
 
@@ -60,7 +60,7 @@ def get_action_state(
 
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
-            "missing_slots": ordered_missing, "ask_prompts": ASK_PROMPT_MAP[focus_key],
+            "missing_slots": ordered_missing, "ask_prompts": [ASK_PROMPT_MAP[focus_key]],
             "payload": slots.model_dump(),
         }
 
