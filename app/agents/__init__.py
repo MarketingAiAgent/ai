@@ -88,7 +88,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             "content": viz_data["json_graph"]
                         }
                         
-            if kind == "on_chain_end" and current_node == "tool_executor":
+            if kind == "on_chain_end" and current_node == "tool_executor" and isinstance(event.get("data", {}).get("output"), dict):
                 final_state = event.get("data", {}).get("output")
                 if final_state:
                     tool_results = final_state.get("tool_results", {})
