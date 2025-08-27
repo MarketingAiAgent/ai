@@ -42,13 +42,13 @@ def get_action_state(
     if not _is_filled(slots.focus):
         if slots.target_type == "brand":
             focus_key = "focus_brand"
-        elif slots.target_type == "category":
+        else:
             focus_key = "focus_category"
         ordered_missing.append("focus")
 
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
-            "missing_slots": ordered_missing, "ask_prompts": ask_prompts['focus_key'],
+            "missing_slots": ordered_missing, "ask_prompts": ASK_PROMPT_MAP[focus_key],
             "payload": slots.model_dump(),
         }
 
