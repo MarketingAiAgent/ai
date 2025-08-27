@@ -1139,7 +1139,14 @@ def response_generator_node(state: OrchestratorState):
     {knowledge_snippet}
     """)
 
-    to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
+    def to_json(x):
+        if x is None:
+            return "null"
+        try:
+            return json.dumps(x, ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.warning(f"JSON 직렬화 실패: {e}, 빈 객체로 처리")
+            return "{}"
 
     prompt = ChatPromptTemplate.from_template(prompt_tmpl)
     # llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
