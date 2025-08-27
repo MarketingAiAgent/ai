@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 async def stream_agent(chat_id, history, active_task, conn_str, schema_info, message):
     state = return_initial_state(chat_id, history, active_task, conn_str, schema_info, message)
 
-    yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=True)}\n\n"
 
     graph = None
     is_in_table = False 
@@ -55,7 +55,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
             # 프로모션 최종 생성 완료 시 plan 데이터 전송
             if kind == "on_chain_end" and current_node == "response_generator":
                 final_state = event.get("data", {}).get("output")
-                if final_state and final_state.get("is_final_promotion"):
+                if final_state and isinstance(final_state, dict) and final_state.get("is_final_promotion"):
                     # 프로모션 슬롯과 기획 내용 추출
                     promotion_slots = final_state.get("promotion_slots", {})
                     promotion_content = final_state.get("output", "")
@@ -67,7 +67,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             "type": "plan",
                             "content": promotion_slots.get('target_type', 'brand')
                         }
-                        yield f"data: {json.dumps(plan_payload, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps(plan_payload, ensure_ascii=True)}\n\n"
                     except Exception as e:
                         logging.error(f"Plan data generation failed: {e}")
                         # 실패 시에도 기본 plan 데이터 전송
@@ -75,7 +75,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             "type": "plan",
                             "content": promotion_slots.get('target_type', 'brand')
                         }
-                        yield f"data: {json.dumps(plan_payload, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps(plan_payload, ensure_ascii=True)}\n\n"
             
             if kind == "on_chain_end" and current_node== "visualizer":
                 final_state = event.get("data", {}).get("output")
@@ -104,7 +104,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                         "type": "state",
                         "content": f"{display_name}"
                     }
-                    yield f"data: {json.dumps(tool_payload, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(tool_payload, ensure_ascii=True)}\n\n"
                 
                 # 구체적인 툴 메시지를 보냈으므로, 제네릭한 노드 메시지는 건너뜁니다.
                 continue
@@ -116,7 +116,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                         "type": "state",
                         "content": f"{node_display_name}"
                     }
-                    yield f"data: {json.dumps(state_payload, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(state_payload, ensure_ascii=True)}\n\n"
             
             if kind == "on_chat_model_stream" and current_node== "response_generator":
                 chunk = event.get("data", {}).get("chunk")
@@ -137,13 +137,17 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             buffer.append(c)
                             continue 
 
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': buffer.popleft()}, ensure_ascii=False)}\n\n"
+                        char = buffer.popleft()
+                        # 디버깅: 특수 문자 로깅
+                        if char in ['\n', '\r', '\t']:
+                            logger.info(f"특수 문자 전송: repr={repr(char)}")
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': char}, ensure_ascii=True)}\n\n"
                         buffer.append(c)
 
                         window_text = "".join(buffer)
                         if window_text == token:
                             is_in_table = not is_in_table
-                            yield f"data: {json.dumps({'type': alert}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'type': alert}, ensure_ascii=True)}\n\n"
                             buffer.clear()
 
     except Exception as e:
@@ -151,14 +155,14 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
         logger.error(f"Error in stream_agent: {e}", exc_info=True)
         
         error_payload = {"type": "error", "message": "문제가 발생했습니다."}
-        yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps(error_payload, ensure_ascii=True)}\n\n"
 
     finally:
         if buffer:
             for c in buffer: 
-                yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=True)}\n\n"
         if graph:
             logger.info(f"===== 📈 그래프 생성됨 =====\n\n Graph data: \n {graph}")
-            yield f"data: {json.dumps(graph, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(graph, ensure_ascii=True)}\n\n"
             
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=True)}\n\n"

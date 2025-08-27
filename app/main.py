@@ -19,8 +19,6 @@ app = FastAPI(
     title=settings.PROJECT_NAME, 
 )
 
-logger.info(f"SUPABASE_ANON_KEY: {settings.SUPABASE_ANON_KEY}")
-
 app.include_router(chat.router)
 
 async def word_stream(text: str) -> AsyncGenerator[str, None]:

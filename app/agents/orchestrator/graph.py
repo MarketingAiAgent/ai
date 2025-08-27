@@ -63,7 +63,7 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
 - 기간: {promotion_context['duration']}
 
 **내부 데이터베이스 분석 결과 (상위 20개):**
-{json.dumps(top_rows, ensure_ascii=False, indent=2, default=str)}
+{json.dumps(top_rows, ensure_ascii=True, indent=2, default=str)}
 
 **시장 트렌드 분석:**
 - 트렌딩 키워드: {knowledge.get('trending_terms', [])}
@@ -122,7 +122,7 @@ def _generate_llm_recommendations(state: OrchestratorState, rows: List[Dict[str,
 - 기간: {promotion_context['duration']}
 
 **내부 데이터베이스 분석 결과 (상위 10개):**
-{json.dumps(top_rows, ensure_ascii=False, indent=2, default=str)}
+{json.dumps(top_rows, ensure_ascii=True, indent=2, default=str)}
 
 **시장 트렌드 분석:**
 - 트렌딩 키워드: {knowledge.get('trending_terms', [])}
@@ -899,7 +899,7 @@ def visualizer_caller_node(state: OrchestratorState):
     viz_state = VisualizeState(
         user_question=state.get("user_message"),
         instruction="사용자의 질문과 아래 데이터를 바탕으로 최적의 그래프를 생성하고 설명해주세요.",
-        json_data=json.dumps(t2s_result, ensure_ascii=False)
+        json_data=json.dumps(t2s_result, ensure_ascii=True)
     )
     
     viz_response = visualizer_app.invoke(viz_state)
@@ -1124,7 +1124,7 @@ def response_generator_node(state: OrchestratorState):
     {knowledge_snippet}
     """)
 
-    to_json = lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "null"
+    to_json = lambda x: json.dumps(x, ensure_ascii=True) if x is not None else "null"
 
     prompt = ChatPromptTemplate.from_template(prompt_tmpl)
     # llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=settings.GOOGLE_API_KEY)
