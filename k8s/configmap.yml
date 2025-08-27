@@ -5,6 +5,7 @@ metadata:
 data:
   PROJECT_NAME: "AI Agent tool for Marketer"
   API_VERSION_STR: "/api/v1"
-  LOG_LEVEL: "DEBUG"
+  LOG_LEVEL: "INFO"
   PROFILE: "PROD"
   SUPERBASE_URL: "https://pvhqgrqyquphqtmqxqih.supabase.co"
+  SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2aHFncnF5cXVwaHF0bXF4cWloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQzNzg4NTMsImV4cCI6MjA2OTk1NDg1M30.gcoEb8IjEzrAZ719b8DiBLDvKkoElA83TXmFl1FnOs4
