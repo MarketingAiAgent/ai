@@ -45,7 +45,13 @@ def get_action_state(
         elif slots.target_type == "category":
             focus_key = "focus_category"
         ordered_missing.append("focus")
-    
+
+        return {
+            "intent_type": "promotion", "status": "ask_for_slots",
+            "missing_slots": ordered_missing, "ask_prompts": ask_prompts['focus_key'],
+            "payload": slots.model_dump(),
+        }
+
     # target은 필수가 아님 - 제거
     # if not _is_filled(slots.target):
     #     ordered_missing.append("target")
