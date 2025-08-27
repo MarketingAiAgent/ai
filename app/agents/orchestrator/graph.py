@@ -1148,7 +1148,11 @@ def response_generator_node(state: OrchestratorState):
         "knowledge_snippet": knowledge_snippet or "",
     })
 
-    final_response = getattr(final_text, "content", None) or str(final_text)
+    # AIMessage 객체 안전 처리
+    if hasattr(final_text, "content"):
+        final_response = final_text.content
+    else:
+        final_response = str(final_text)
     
     # export 타입일 때 다운로드 링크 추가
     if t2s_output_type == "export" and t2s_download_url:

@@ -7,6 +7,8 @@ from .orchestrator.graph import orchestrator_app
 from .formatter.grapy import create_plan_from_promotion_slots
 from app.mock.chat import *
 
+logger = logging.getLogger(__name__)
+
 async def stream_agent(chat_id, history, active_task, conn_str, schema_info, message):
     state = return_initial_state(chat_id, history, active_task, conn_str, schema_info, message)
 
@@ -32,6 +34,8 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
     }
     
     NODE_NAME_MAP = {
+        "visualize": "그래프 생성 중...",
+        "explain": "그래프 확인 중...",
         "generate_sql": "SQL 생성 중...",
         "make_table": "테이블 생성 중...",
         "planner": "응답 계획 수립 중...",
@@ -116,7 +120,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
             
             if kind == "on_chat_model_stream" and current_node== "response_generator":
                 chunk = event.get("data", {}).get("chunk")
-                if chunk and chunk.content:
+                if chunk and hasattr(chunk, "content") and chunk.content:
                     for c in chunk.content:
 
                         if is_in_table:
@@ -143,7 +147,10 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             buffer.clear()
 
     except Exception as e:
-        error_payload = {"type": "error", "message": str(e)}
+        # exc_info=True로 전체 스택 트레이스를 포함하여 로깅
+        logger.error(f"Error in stream_agent: {e}", exc_info=True)
+        
+        error_payload = {"type": "error", "message": "문제가 발생했습니다."}
         yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
 
     finally:
@@ -151,6 +158,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
             for c in buffer: 
                 yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=False)}\n\n"
         if graph:
+            logger.info(f"===== 📈 그래프 생성됨 =====\n\n Graph data: \n {graph}")
             yield f"data: {json.dumps(graph, ensure_ascii=False)}\n\n"
             
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
