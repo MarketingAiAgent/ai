@@ -10,7 +10,7 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
 최종 확인 테스트입니다. 프로모션 계획이 완성되었습니다. 다음 단계로 진행하시겠습니까?
 '''
   payload = {"type": "start"}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
   
   # 스트리밍 형태로 응답
   for char in message:
@@ -18,11 +18,11 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
           "type": "chunk",
           "content": char
       }
-      yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+      yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
       await asyncio.sleep(0.02)  # 타이핑 효과
 
   payload = {"type": "table_start"}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
   Table = '''
 | product_id | product_name | brand | category_l1 | category_l2 | total_purchase_count |
@@ -39,11 +39,11 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
           "type": "chunk",
           "content": char
       }
-      yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+      yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
       await asyncio.sleep(0.02)  # 타이핑 효과
 
   payload = {"type": "table_end"}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
   simple_graph = {
     "data": [
@@ -80,14 +80,14 @@ async def mock_suggestion() -> AsyncGenerator[str, None]:
   }
   
   payload = {'type': "graph", "content": simple_graph}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
   
   payload = {"type": "plan", "content": "brand"}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     # 완료 신호
   payload = {"type": "done"}
-  yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+  yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 async def mock_brand_test(chat_id: str) -> AsyncGenerator[str, None]:
@@ -114,7 +114,7 @@ target_type: brand
 '''
     
     payload = {"type": "start"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     
     # 스트리밍 형태로 응답
     for char in message:
@@ -122,16 +122,16 @@ target_type: brand
             "type": "chunk",
             "content": char
         }
-        yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0.02)  # 타이핑 효과
     
     # plan 타입 데이터 전송
     payload = {"type": "plan", "content": "brand"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     
     # 완료 신호
     payload = {"type": "done"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 async def mock_category_test(chat_id: str) -> AsyncGenerator[str, None]:
@@ -158,7 +158,7 @@ target_type: category
 '''
     
     payload = {"type": "start"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     
     # 스트리밍 형태로 응답
     for char in message:
@@ -166,13 +166,13 @@ target_type: category
             "type": "chunk",
             "content": char
         }
-        yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0.02)  # 타이핑 효과
     
     # plan 타입 데이터 전송
     payload = {"type": "plan", "content": "category"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
     
     # 완료 신호
     payload = {"type": "done"}
-    yield f"data: {json.dumps(payload, ensure_ascii=True)}\n\n"
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

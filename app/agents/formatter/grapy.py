@@ -115,7 +115,7 @@ def _brand_prompt(parsed: Dict[str, Any], example: List[Dict[str, Any]], ref: Di
 - optional: title_suggestion={p.get("title_suggestion")}, theme_labels={p.get("theme_labels")}
 
 [출력 스키마 예시]
-{json.dumps(example, ensure_ascii=True, indent=2)}
+{json.dumps(example, ensure_ascii=False, indent=2)}
 
 [참고 스타일 힌트(존중하되, 입력과 충돌 시 입력 우선)]
 - ref_title: {ref_title}
@@ -159,12 +159,12 @@ def _category_prompt(parsed: Dict[str, Any], example: List[Dict[str, Any]], ref:
 - optional: title_suggestion={p.get("title_suggestion")}, theme_labels={p.get("theme_labels")}
 
 [출력 스키마 예시]
-{json.dumps(example, ensure_ascii=True, indent=2)}
+{json.dumps(example, ensure_ascii=False, indent=2)}
 
 [참고 스타일 힌트(존중하되, 입력과 충돌 시 입력 우선)]
 - ref_title: {ref_title}
 - ref_main_banner: {ref_banner}
-- ref_sections(앞에서부터 섹션별 힌트): {json.dumps(ref_sections, ensure_ascii=True)}
+- ref_sections(앞에서부터 섹션별 힌트): {json.dumps(ref_sections, ensure_ascii=False)}
 
 [작성 원칙]
 - title: **카테고리/시즌 기반 제목**으로. ref_title이 유효하면 톤/표현을 참고하라.

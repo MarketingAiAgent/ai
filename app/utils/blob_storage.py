@@ -107,7 +107,7 @@ def upload_json_to_blob(data: dict, filename: Optional[str] = None) -> Optional[
             filename = f"export_{timestamp}_{unique_id}.json"
         
         # JSON 데이터를 문자열로 변환
-        json_content = json.dumps(data, ensure_ascii=True, indent=2)
+        json_content = json.dumps(data, ensure_ascii=False, indent=2)
         
         # Blob에 업로드
         blob_client = container_client.get_blob_client(filename)
