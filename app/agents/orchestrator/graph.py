@@ -232,6 +232,11 @@ def _merge_slots(state: OrchestratorState, updates: Dict[str, Any]) -> Promotion
 def slot_extractor_node(state: OrchestratorState):
     logger.info("--- 🔍 슬롯 추출/저장 노드 실행 ---")
     user_message = state.get("user_message", "")
+
+    if state.get("history"):
+        last_question = state.get("history")[-1].get("agent_message", "")
+    else: 
+        last_question = ""
     chat_id = state["chat_id"]
 
     parser = PydanticOutputParser(pydantic_object=PromotionSlotUpdate)
@@ -246,7 +251,7 @@ def slot_extractor_node(state: OrchestratorState):
     - focus: 사용자가 선택한 브랜드명 또는 카테고리명 (예: "나이키", "스포츠웨어")
     - target: 타겟 고객층 - 명시적으로 언급된 경우에만 적용 (예: "20대 남성", "직장인")
     - selected_product: 사용자가 선택한 구체적인 상품명들의 리스트 (예: ["상품A", "상품B"])
-    - wants_trend: 트렌드 반영 여부 (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
+    - wants_trend: 만약 이전 AI 메시지 마지막에 트렌드 반영 여부를 물었다면 사용자 메시지를 보고 wants_trend 값을 결정하세요. (예: "예", "네", "트렌드", "좋아", "해줘" → true, "아니오", "아니", "없이", "안해", "괜찮아" → false)
     - objective: 프로모션 목표 - 명시적으로 언급된 경우에만 (예: "매출 증대", "신규 고객 유입")
     
     **금지사항:**
@@ -258,8 +263,12 @@ def slot_extractor_node(state: OrchestratorState):
     JSON 스키마:
     {format_instructions}
 
-    [사용자 메시지]
+    [이전 AI 메시지]
+    {last_question}
+
+    [이전 AI 메시지에 대한 사용자 메시지]
     {user_message}
+
     """)
     prompt = ChatPromptTemplate.from_template(
         prompt_tmpl,
@@ -271,7 +280,7 @@ def slot_extractor_node(state: OrchestratorState):
         model_kwargs={"response_format": {"type": "json_object"}},
         api_key=settings.GOOGLE_API_KEY
     )
-    parsed: PromotionSlotUpdate = (prompt | llm | parser).invoke({"user_message": user_message})
+    parsed: PromotionSlotUpdate = (prompt | llm | parser).invoke({"user_message": user_message, "last_question": last_question})
 
     updates = {k: v for k, v in parsed.model_dump().items() if v not in (None, "", [])}
     

@@ -28,11 +28,23 @@ def get_action_state(
         # target_type와 duration을 함께 물어봄
         ask_prompts = [ASK_PROMPT_MAP["target_type"]]
         missing_slots = ["target_type"]
+
+        if not _is_filled(slots.duration):
+            ask_prompts.append(ASK_PROMPT_MAP["duration"])
+            missing_slots.append("duration")
                 
         return {
             "intent_type": "promotion", "status": "ask_for_slots",
             "missing_slots": missing_slots, "ask_prompts": ask_prompts,
             "payload": {},
+        }
+
+    if not _is_filled(slots.duration):
+
+        return {
+            "intent_type": "promotion", "status": "ask_for_slots",
+            "missing_slots": ["duration"], "ask_prompts": ASK_PROMPT_MAP["duration"],
+            "payload": slots.model_dump(),
         }
 
     # 필수 슬롯 목록 확인 (target은 선택사항으로 변경)
@@ -66,9 +78,6 @@ def get_action_state(
             "ask_prompts": [f"{slots.focus} {focus_label}의 어떤 제품으로 프로모션을 진행할까요? 아래 추천 목록에서 선택하시거나 직접 입력해주세요."],
             "payload": slots.model_dump(),
         }
-    
-    if not _is_filled(slots.duration):
-        ordered_missing.append("duration")
 
     # if ordered_missing:
     #     # 아직 채워야 할 기본 정보가 남은 경우
