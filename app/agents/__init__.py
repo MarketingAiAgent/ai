@@ -15,6 +15,7 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
     yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
 
     graph = None
+    download_url = None 
     is_in_table = False 
     
     TOKEN_START = "[TABLE_START]"
@@ -86,7 +87,15 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
                             "type": "graph",
                             "content": viz_data["json_graph"]
                         }
-
+                        
+            if kind == "on_chain_end" and current_node == "tool_executor":
+                final_state = event.get("data", {}).get("output")
+                if final_state:
+                    tool_results = final_state.get("tool_results", {})
+                    t2s_result = tool_results.get("t2s")
+                    if t2s_result and isinstance(t2s_result, dict) and "download_url" in t2s_result:
+                        download_url = t2s_result.get("download_url")  
+                                                 
             if current_node == "tool_executor":
                 # 노드로 들어가는 입력(state)에서 tool_calls를 추출합니다.
                 input_state = event.get("data", {}).get("input", {})
@@ -165,28 +174,10 @@ async def stream_agent(chat_id, history, active_task, conn_str, schema_info, mes
             logger.info(f"===== 📈 그래프 생성됨 =====\n\n Graph data: \n {graph}")
             yield f"data: {json.dumps(graph, ensure_ascii=False)}\n\n"
         
-        try:
-            final_state = orchestrator_app.get_state({"configurable": {"thread_id": chat_id}})
-            if final_state and final_state.values:
-                tool_results = final_state.values.get("tool_results", {})
-                
-                # tool_results에서 t2s 관련 결과를 찾아 download_url 확인
-                for key, value in tool_results.items():
-                    if key.startswith("t2s") and isinstance(value, dict):
-                        output_type = value.get("output_type")
-                        download_url = value.get("download_url")
-                        
-                        if output_type == "export" and download_url:
-                            logger.info(f"CSV 다운로드 링크 스트리밍: {download_url}")
-                            
-                            # 다운로드 링크를 문자 단위로 스트리밍
-                            download_text = f"\n\n[CSV 다운로드]({download_url})"
-                            for char in download_text:
-                                if char == "\n": 
-                                    char = "\\n"
-                                yield f"data: {json.dumps({'type': 'chunk', 'content': char}, ensure_ascii=False)}\n\n"
-                            break
-        except Exception as e:
-            logger.error(f"CSV 다운로드 링크 처리 중 오류: {e}")
+        if download_url:
+            download_text = f"\n\n[다운로드 링크]({download_url})"
+            for c in download_text:
+                if c == "\n": c = "\\n"
+                yield f"data: {json.dumps({'type': 'chunk', 'content': c}, ensure_ascii=False)}\n\n"
             
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
