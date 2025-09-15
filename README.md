@@ -11,7 +11,8 @@ AI 기능들이 구현되었습니다.
 - **Data Visualization**: Matplotlib, Seaborn, Plotly, Pandas
 - **Infrastructure**: Docker, Kubernetes, Azure Storage
 - **External APIs**: Tavily Search, BeautifulSoup4
-
+- **DevOps**: Github Actions
+  
 ## ✨ 주요 기능
 - **자연어 기반 데이터 조회**: SQL 자동 생성을 통한 마케팅 데이터 분석
 - **실시간 스트리밍 채팅**: FastAPI 기반 실시간 대화형 인터페이스
