@@ -6,7 +6,7 @@ AI 기능들이 구현되었습니다.
 
 ## 🛠 기술 스택
 - **Backend**: Python 3.11, FastAPI
-- **Agent: LangGraph, CrewAI
+- **Agent**: LangGraph, CrewAI
 - **Database**: PostgreSQL, Supabase, MongoDB (CosmosDB)
 - **Data Visualization**: Matplotlib, Seaborn, Plotly, Pandas
 - **Infrastructure**: Docker, Kubernetes, Azure Storage
